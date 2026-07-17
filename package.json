@@ -1,0 +1,29 @@
+{
+  "name": "workproof-global",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@workproof/web",
+    "dev:api": "npm run dev --workspace=@workproof/api",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EMPOWERED-NEXUS/workproof-global.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/EMPOWERED-NEXUS/workproof-global/issues"
+  },
+  "homepage": "https://github.com/EMPOWERED-NEXUS/workproof-global#readme",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

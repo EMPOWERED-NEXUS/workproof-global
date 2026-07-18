@@ -1,29 +1,36 @@
 {
   "name": "workproof-global",
   "version": "0.1.0",
-  "description": "",
-  "main": "index.js",
+  "description": "WorkProof Global — worker-owned proof-of-work platform",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev:web": "npm run dev --workspace=@workproof/web",
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "npm run dev --workspace=@workproof/api",
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "dev:web": "npm run dev --workspace=@workproof/web",
+    "build": "npm run build --workspace=@workproof/shared && npm run build --workspace=@workproof/api && npm run build --workspace=@workproof/web",
+    "lint": "npm run lint --workspace=@workproof/web",
+    "typecheck": "npm run typecheck --workspace=@workproof/shared && npm run typecheck --workspace=@workproof/api && npm run typecheck --workspace=@workproof/web",
+    "test": "npm run test --workspace=@workproof/api",
+    "test:api": "npm run test --workspace=@workproof/api",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "npm run db:migrate --workspace=@workproof/api",
+    "db:generate": "npm run db:generate --workspace=@workproof/api",
+    "db:seed": "npm run db:seed --workspace=@workproof/api",
+    "db:studio": "npm run db:studio --workspace=@workproof/api",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/EMPOWERED-NEXUS/workproof-global.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/EMPOWERED-NEXUS/workproof-global/issues"
-  },
-  "homepage": "https://github.com/EMPOWERED-NEXUS/workproof-global#readme",
-  "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+  "license": "ISC"
 }

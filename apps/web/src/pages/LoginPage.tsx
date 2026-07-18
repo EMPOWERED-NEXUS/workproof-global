@@ -1,0 +1,55 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Layout, Alert } from '../components/Layout';
+import { useAuth } from '../hooks/use-auth';
+import { api } from '../lib/api';
+
+export default function LoginPage() {
+  const navigate = useNavigate();
+  const { refresh } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      await api.login({ email, password });
+      await refresh();
+      navigate('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Layout>
+      <div className="auth-card">
+        <h1>Sign in</h1>
+        <p className="subtitle">Access your WorkProof dashboard and receipts.</p>
+        {error && <Alert tone="error" message={error} />}
+        <form onSubmit={(e) => void handleSubmit(e)} className="form-stack">
+          <label>
+            Email
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+          </label>
+          <label>
+            Password
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
+          </label>
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+        <p className="form-footer">
+          New to WorkProof? <Link to="/register">Create your profile</Link>
+        </p>
+      </div>
+    </Layout>
+  );
+}

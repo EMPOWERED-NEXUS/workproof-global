@@ -94,6 +94,10 @@ export const adminRevokeSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
 export type ReceiptCreateInput = z.infer<typeof receiptCreateSchema>;
 export type ReceiptUpdateInput = z.infer<typeof receiptUpdateSchema>;
+export type ReceiptListQueryInput = z.infer<typeof receiptListQuerySchema>;
 export type VerificationRespondInput = z.infer<typeof verificationRespondSchema>;
+export type AdminResolveDisputeInput = z.infer<typeof adminResolveDisputeSchema>;
+export type AdminRevokeInput = z.infer<typeof adminRevokeSchema>;

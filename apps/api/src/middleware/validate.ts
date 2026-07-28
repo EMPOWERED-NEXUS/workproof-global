@@ -3,10 +3,40 @@ import { ZodError, type ZodType } from "zod";
 import { AppError } from "../lib/errors.js";
 import { env } from "../config/env.js";
 
+declare global {
+  namespace Express {
+    interface Request {
+      /** Parsed validation results — never overwrites read-only req.query/params in Express 5. */
+      validated?: {
+        body?: unknown;
+        query?: unknown;
+        params?: unknown;
+      };
+    }
+  }
+}
+
+function ensureValidated(req: Request): NonNullable<Request["validated"]> {
+  req.validated ??= {};
+  return req.validated;
+}
+
+export function validatedBody<T>(req: Request): T {
+  return req.validated?.body as T;
+}
+
+export function validatedQuery<T>(req: Request): T {
+  return req.validated?.query as T;
+}
+
+export function validatedParams<T>(req: Request): T {
+  return req.validated?.params as T;
+}
+
 export function validateBody<T>(schema: ZodType<T>) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
-      req.body = schema.parse(req.body);
+      ensureValidated(req).body = schema.parse(req.body);
       next();
     } catch (error) {
       next(error);
@@ -17,7 +47,18 @@ export function validateBody<T>(schema: ZodType<T>) {
 export function validateQuery<T>(schema: ZodType<T>) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
-      req.query = schema.parse(req.query) as Request["query"];
+      ensureValidated(req).query = schema.parse(req.query);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+export function validateParams<T>(schema: ZodType<T>) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    try {
+      ensureValidated(req).params = schema.parse(req.params);
       next();
     } catch (error) {
       next(error);

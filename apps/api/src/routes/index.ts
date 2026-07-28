@@ -12,7 +12,24 @@ import {
   adminResolveDisputeSchema,
   adminRevokeSchema,
 } from "@workproof/shared";
-import { asyncHandler, validateBody, validateQuery } from "../middleware/validate.js";
+import type {
+  AdminResolveDisputeInput,
+  AdminRevokeInput,
+  LoginInput,
+  ProfileUpdateInput,
+  ReceiptCreateInput,
+  ReceiptListQueryInput,
+  ReceiptUpdateInput,
+  RegisterInput,
+  VerificationRespondInput,
+} from "@workproof/shared";
+import {
+  asyncHandler,
+  validateBody,
+  validateQuery,
+  validatedBody,
+  validatedQuery,
+} from "../middleware/validate.js";
 import {
   authenticate,
   authorize,
@@ -54,8 +71,6 @@ import {
   revokeReceipt,
   resolveDispute,
 } from "../services/dashboard.service.js";
-import { env } from "../config/env.js";
-
 export const apiRouter = Router();
 
 function param(value: string | string[] | undefined): string {
@@ -72,7 +87,7 @@ apiRouter.post(
   "/auth/register",
   validateBody(registerSchema),
   asyncHandler(async (req, res) => {
-    const user = await registerUser(req.body, clientIp(req));
+    const user = await registerUser(validatedBody<RegisterInput>(req), clientIp(req));
     const token = signToken(user);
     setAuthCookie(res, token);
     res.status(201).json({ success: true, data: { user, token } });
@@ -84,7 +99,8 @@ apiRouter.post(
   loginRateLimiter,
   validateBody(loginSchema),
   asyncHandler(async (req, res) => {
-    const user = await loginUser(req.body.email, req.body.password);
+    const body = validatedBody<LoginInput>(req);
+    const user = await loginUser(body.email, body.password);
     const token = signToken(user);
     setAuthCookie(res, token);
     res.json({ success: true, data: { user, token } });
@@ -125,7 +141,7 @@ apiRouter.patch(
   authorize("WORKER"),
   validateBody(profileUpdateSchema),
   asyncHandler(async (req, res) => {
-    const profile = await updateOwnProfile(req.user!.id, req.body);
+    const profile = await updateOwnProfile(req.user!.id, validatedBody<ProfileUpdateInput>(req));
     res.json({ success: true, data: profile });
   }),
 );
@@ -145,7 +161,11 @@ apiRouter.post(
   authorize("WORKER"),
   validateBody(receiptCreateSchema),
   asyncHandler(async (req, res) => {
-    const receipt = await createReceipt(req.user!.id, req.body, clientIp(req));
+    const receipt = await createReceipt(
+      req.user!.id,
+      validatedBody<ReceiptCreateInput>(req),
+      clientIp(req),
+    );
     res.status(201).json({ success: true, data: receipt });
   }),
 );
@@ -156,7 +176,10 @@ apiRouter.get(
   authorize("WORKER"),
   validateQuery(receiptListQuerySchema),
   asyncHandler(async (req, res) => {
-    const result = await listReceipts(req.user!.id, req.query as never);
+    const result = await listReceipts(
+      req.user!.id,
+      validatedQuery<ReceiptListQueryInput>(req),
+    );
     res.json({ success: true, data: result });
   }),
 );
@@ -177,7 +200,12 @@ apiRouter.patch(
   authorize("WORKER"),
   validateBody(receiptUpdateSchema),
   asyncHandler(async (req, res) => {
-    const receipt = await updateReceipt(req.user!.id, param(req.params.id), req.body, clientIp(req));
+    const receipt = await updateReceipt(
+      req.user!.id,
+      param(req.params.id),
+      validatedBody<ReceiptUpdateInput>(req),
+      clientIp(req),
+    );
     res.json({ success: true, data: receipt });
   }),
 );
@@ -273,7 +301,10 @@ apiRouter.post(
   verificationRateLimiter,
   validateBody(verificationRespondSchema),
   asyncHandler(async (req, res) => {
-    const result = await respondToVerification(param(req.params.token), req.body, {
+    const result = await respondToVerification(
+      param(req.params.token),
+      validatedBody<VerificationRespondInput>(req),
+      {
       ipAddress: clientIp(req),
       userAgent: req.get("user-agent"),
     });
@@ -348,7 +379,8 @@ apiRouter.patch(
   authorize("ADMIN"),
   validateBody(adminUserStatusSchema),
   asyncHandler(async (req, res) => {
-    const user = await updateUserStatus(req.user!.id, param(req.params.id), req.body.status, clientIp(req));
+    const body = validatedBody<{ status: "ACTIVE" | "SUSPENDED" }>(req);
+    const user = await updateUserStatus(req.user!.id, param(req.params.id), body.status, clientIp(req));
     res.json({ success: true, data: user });
   }),
 );
@@ -359,7 +391,8 @@ apiRouter.post(
   authorize("ADMIN"),
   validateBody(adminRevokeSchema),
   asyncHandler(async (req, res) => {
-    const receipt = await revokeReceipt(req.user!.id, param(req.params.id), req.body.reason, clientIp(req));
+    const body = validatedBody<AdminRevokeInput>(req);
+    const receipt = await revokeReceipt(req.user!.id, param(req.params.id), body.reason, clientIp(req));
     res.json({ success: true, data: receipt });
   }),
 );
@@ -370,11 +403,12 @@ apiRouter.post(
   authorize("ADMIN"),
   validateBody(adminResolveDisputeSchema),
   asyncHandler(async (req, res) => {
+    const body = validatedBody<AdminResolveDisputeInput>(req);
     const result = await resolveDispute(
       req.user!.id,
       param(req.params.id),
-      req.body.resolution,
-      req.body.receiptStatus,
+      body.resolution,
+      body.receiptStatus,
       clientIp(req),
     );
     res.json({ success: true, data: result });

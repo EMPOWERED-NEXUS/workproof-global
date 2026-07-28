@@ -211,4 +211,38 @@ describe("WorkProof Global API", () => {
     const res = await agent.get("/api/v1/admin/users");
     expect(res.status).toBe(403);
   });
+
+  it("GET /api/v1/receipts accepts validated query parameters for authenticated worker", async () => {
+    const agent = request.agent(app);
+    await agent.post("/api/v1/auth/register").send({
+      email: "listquery@test.com",
+      password: "SecurePass1",
+      fullName: "List Query Worker",
+      role: "WORKER",
+    });
+
+    const createRes = await agent.post("/api/v1/receipts").send({
+      customerName: "Filter Customer",
+      customerEmail: "filter-customer@test.com",
+      serviceTitle: "Verified filter test",
+      description: "Work completed to test receipt listing with validated query parameters.",
+      workDate: "2026-06-15",
+      visibility: "PUBLIC",
+    });
+    expect(createRes.status).toBe(201);
+
+    const receiptId = createRes.body.data.id as string;
+    const submitRes = await agent.post(`/api/v1/receipts/${receiptId}/submit`);
+    expect(submitRes.status).toBe(200);
+
+    await request(app)
+      .post(`/api/v1/verification/${submitRes.body.data.verificationToken as string}/respond`)
+      .send({ decision: "CONFIRMED", customerName: "Filter Customer" });
+
+    const listRes = await agent.get("/api/v1/receipts?status=VERIFIED&page=1&limit=10");
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.success).toBe(true);
+    expect(listRes.body.data.pagination).toMatchObject({ page: 1, limit: 10 });
+    expect(listRes.body.data.items.some((item: { id: string }) => item.id === receiptId)).toBe(true);
+  });
 });

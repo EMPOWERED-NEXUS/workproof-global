@@ -25,11 +25,13 @@ export function generateVerificationCode(): string {
   return code;
 }
 
+/** @deprecated Prefer allocateReceiptNumber via PostgreSQL sequence (WPG-YYYY-######). */
 export function generateReceiptNumber(sequence: number): string {
   const year = new Date().getFullYear();
-  return `WP-${year}-${String(sequence).padStart(5, "0")}`;
+  return `WPG-${year}-${String(sequence).padStart(6, "0")}`;
 }
 
+/** @deprecated Prefer computeIntegrityHashV1 from integrity.ts */
 export function computeIntegrityHash(payload: Record<string, unknown>): string {
   const canonical = JSON.stringify(payload, Object.keys(payload).sort());
   return createHash("sha256").update(canonical).digest("hex");

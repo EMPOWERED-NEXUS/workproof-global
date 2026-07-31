@@ -72,12 +72,14 @@ import {
   removeEvidence,
   submitReceipt,
   archiveReceipt,
+  unarchiveReceipt,
   getPublicProof,
 } from "../services/receipt.service.js";
 import {
   getVerificationByToken,
   respondToVerification,
 } from "../services/verification.service.js";
+import { listReceiptEventsForWorker } from "../services/receipt-event.service.js";
 import {
   getWorkerDashboard,
   getOrganisationDashboard,
@@ -427,6 +429,26 @@ apiRouter.post(
   asyncHandler(async (req, res) => {
     const receipt = await archiveReceipt(req.user!.id, param(req.params.id), clientIp(req));
     res.json({ success: true, data: receipt });
+  }),
+);
+
+apiRouter.post(
+  "/receipts/:id/unarchive",
+  authenticate,
+  authorize("WORKER"),
+  asyncHandler(async (req, res) => {
+    const receipt = await unarchiveReceipt(req.user!.id, param(req.params.id), clientIp(req));
+    res.json({ success: true, data: receipt });
+  }),
+);
+
+apiRouter.get(
+  "/receipts/:id/events",
+  authenticate,
+  authorize("WORKER"),
+  asyncHandler(async (req, res) => {
+    const events = await listReceiptEventsForWorker(req.user!.id, param(req.params.id));
+    res.json({ success: true, data: events });
   }),
 );
 

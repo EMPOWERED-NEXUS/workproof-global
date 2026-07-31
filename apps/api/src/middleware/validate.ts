@@ -73,12 +73,15 @@ export function errorHandler(
   res: Response,
   _next: NextFunction,
 ): void {
+  const requestId = _req.requestId;
+
   if (error instanceof AppError) {
     res.status(error.statusCode).json({
       success: false,
       message: error.message,
-      ...(error.code ? { code: error.code } : {}),
+      code: error.code ?? `HTTP_${error.statusCode}`,
       ...(error.errors ? { errors: error.errors } : {}),
+      ...(requestId ? { requestId } : {}),
     });
     return;
   }
@@ -93,7 +96,9 @@ export function errorHandler(
     res.status(400).json({
       success: false,
       message: "Validation failed.",
+      code: "VALIDATION_FAILED",
       errors: fieldErrors,
+      ...(requestId ? { requestId } : {}),
     });
     return;
   }
@@ -105,19 +110,28 @@ export function errorHandler(
         error.code === "LIMIT_FILE_SIZE"
           ? `File exceeds maximum size of ${env.MAX_UPLOAD_SIZE_MB}MB.`
           : "Upload rejected.",
+      code: error.code === "LIMIT_FILE_SIZE" ? "UPLOAD_TOO_LARGE" : "UPLOAD_REJECTED",
+      ...(requestId ? { requestId } : {}),
     });
     return;
   }
 
-  console.error(error);
+  console.error(
+    JSON.stringify({
+      level: "error",
+      message: "unhandled_error",
+      requestId,
+      detail: error instanceof Error ? error.message : "unknown",
+    }),
+  );
   res.status(500).json({
     success: false,
-    message:
-      env.NODE_ENV === "production"
-        ? "An unexpected error occurred."
-        : error instanceof Error
-          ? error.message
-          : "An unexpected error occurred.",
+    message: "An unexpected error occurred.",
+    code: "INTERNAL_ERROR",
+    ...(requestId ? { requestId } : {}),
+    ...(env.NODE_ENV !== "production" && error instanceof Error
+      ? { detail: error.message }
+      : {}),
   });
 }
 

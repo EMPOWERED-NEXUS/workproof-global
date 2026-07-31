@@ -58,7 +58,9 @@ const rawSchema = z.object({
   EMAIL_VERIFICATION_EXPIRY_HOURS: z.coerce.number().int().positive().default(48),
   EMAIL_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
   CUSTOMER_VERIFICATION_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(120),
+  PASSWORD_RESET_EXPIRY_HOURS: z.coerce.number().int().positive().default(1),
   ALLOW_DEV_VERIFICATION_TOKEN: z.string().optional(),
+  ALLOW_DEV_PASSWORD_RESET_TOKEN: z.string().optional(),
 });
 
 const parsed = rawSchema.safeParse(process.env);
@@ -87,6 +89,10 @@ const webAppUrl = raw.WEB_APP_URL ?? raw.FRONTEND_URL;
 const localStorageDir = raw.LOCAL_STORAGE_DIR ?? raw.UPLOAD_DIR;
 const allowDevVerificationToken = parseBoolean(
   raw.ALLOW_DEV_VERIFICATION_TOKEN,
+  raw.NODE_ENV === "development" || isTest,
+);
+const allowDevPasswordResetToken = parseBoolean(
+  raw.ALLOW_DEV_PASSWORD_RESET_TOKEN,
   raw.NODE_ENV === "development" || isTest,
 );
 
@@ -221,8 +227,31 @@ export const env = {
   EMAIL_VERIFICATION_EXPIRY_HOURS: raw.EMAIL_VERIFICATION_EXPIRY_HOURS,
   EMAIL_RESEND_COOLDOWN_SECONDS: raw.EMAIL_RESEND_COOLDOWN_SECONDS,
   CUSTOMER_VERIFICATION_RESEND_COOLDOWN_SECONDS: raw.CUSTOMER_VERIFICATION_RESEND_COOLDOWN_SECONDS,
+  PASSWORD_RESET_EXPIRY_HOURS: raw.PASSWORD_RESET_EXPIRY_HOURS,
   ALLOW_DEV_VERIFICATION_TOKEN: allowDevVerificationToken,
+  ALLOW_DEV_PASSWORD_RESET_TOKEN: allowDevPasswordResetToken,
 };
+
+/** Config presence checks for readiness — does not call external providers. */
+export function getReadinessConfigChecks(): Record<string, "ok" | "missing"> {
+  const checks: Record<string, "ok" | "missing"> = {
+    accessTokenSecret: env.ACCESS_TOKEN_SECRET ? "ok" : "missing",
+    emailPayloadEncryptionKey: env.EMAIL_PAYLOAD_ENCRYPTION_KEY ? "ok" : "missing",
+    webAppUrl: env.WEB_APP_URL ? "ok" : "missing",
+    storageProviderConfigured: env.STORAGE_PROVIDER ? "ok" : "missing",
+    emailProviderConfigured: env.EMAIL_PROVIDER ? "ok" : "missing",
+  };
+  if (env.STORAGE_PROVIDER === "supabase") {
+    checks.supabaseUrl = env.SUPABASE_URL ? "ok" : "missing";
+    checks.supabaseServiceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY ? "ok" : "missing";
+    checks.supabaseStorageBucket = env.SUPABASE_STORAGE_BUCKET ? "ok" : "missing";
+  }
+  if (env.EMAIL_PROVIDER === "transactional") {
+    checks.emailApiUrl = env.EMAIL_API_URL ? "ok" : "missing";
+    checks.emailApiKey = env.EMAIL_API_KEY ? "ok" : "missing";
+  }
+  return checks;
+}
 
 export function getDatabaseUrl(): string {
   if (env.NODE_ENV === "test" && env.TEST_DATABASE_URL) {

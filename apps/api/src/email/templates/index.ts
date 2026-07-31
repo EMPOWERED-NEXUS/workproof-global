@@ -4,6 +4,7 @@ import type {
   CustomerVerificationPayload,
   DeliveryFailurePayload,
   EmailVerificationPayload,
+  PasswordResetPayload,
 } from "../types.js";
 
 export function buildEmailVerificationMessage(payload: EmailVerificationPayload): {
@@ -100,4 +101,34 @@ export function buildDeliveryFailureMessage(payload: DeliveryFailurePayload): {
     textFooter,
   ].join("\n");
   return { subject: "Customer verification email failed to send", html, text };
+}
+
+export function buildPasswordResetMessage(payload: PasswordResetPayload): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const link = `${env.WEB_APP_URL.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(payload.rawToken)}`;
+  const { html, textFooter } = emailLayout({
+    title: "Reset your WorkProof password",
+    preheader: "Use this link to choose a new password.",
+    bodyHtml: `
+      <p>Hello ${escapeHtml(payload.fullName)},</p>
+      <p>We received a request to reset your WorkProof Global password. Use the button below to choose a new password.</p>
+      ${ctaButton("Reset password", link)}
+      <p style="font-size:14px;color:#5B6575;">This link expires on ${escapeHtml(new Date(payload.expiresAt).toUTCString())}. If you did not request a reset, you can ignore this email — your password will stay the same.</p>
+      <p style="font-size:14px;color:#8B2942;"><strong>Security notice:</strong> WorkProof will never ask you to share this link or your password by email or chat.</p>
+    `,
+  });
+  const text = [
+    `Hello ${payload.fullName},`,
+    "",
+    "Reset your WorkProof password:",
+    link,
+    "",
+    `Expires: ${new Date(payload.expiresAt).toUTCString()}`,
+    "If you did not request this, ignore this email.",
+    textFooter,
+  ].join("\n");
+  return { subject: "Reset your WorkProof password", html, text };
 }

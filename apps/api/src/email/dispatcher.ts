@@ -6,9 +6,11 @@ import {
   buildCustomerVerificationMessage,
   buildDeliveryFailureMessage,
   buildEmailVerificationMessage,
+  buildPasswordResetMessage,
 } from "./templates/index.js";
 import type { EmailPayload } from "./types.js";
 import { enqueueEmailJob } from "./outbox.service.js";
+import { logger } from "../lib/logger.js";
 
 let timer: NodeJS.Timeout | null = null;
 let running = false;
@@ -72,6 +74,9 @@ function renderMessage(payload: EmailPayload) {
   if (payload.kind === "EMAIL_VERIFICATION") {
     return buildEmailVerificationMessage(payload);
   }
+  if (payload.kind === "PASSWORD_RESET") {
+    return buildPasswordResetMessage(payload);
+  }
   if (payload.kind === "DELIVERY_FAILURE_NOTICE") {
     return buildDeliveryFailureMessage(payload);
   }
@@ -110,7 +115,7 @@ export async function processClaimedEmailJob(jobId: string): Promise<"SENT" | "F
       },
     });
 
-    console.info("[email:dispatcher]", {
+    logger.info("email_delivery", {
       deliveryId: job.id,
       type: job.type,
       status: "SENT",
@@ -157,10 +162,11 @@ export async function processClaimedEmailJob(jobId: string): Promise<"SENT" | "F
         }
       }
 
-      console.info("[email:dispatcher]", {
+      logger.warn("email_delivery", {
         deliveryId: job.id,
         type: job.type,
         status: "FAILED",
+        code,
       });
       return "FAILED";
     }
@@ -175,15 +181,15 @@ export async function processClaimedEmailJob(jobId: string): Promise<"SENT" | "F
         lastErrorMessageSanitised: message,
       },
     });
-    console.info("[email:dispatcher]", {
+    logger.info("email_delivery", {
       deliveryId: job.id,
       type: job.type,
       status: "RETRY",
+      code,
     });
     return "RETRY";
   }
 }
-
 export async function processNextEmailJob(): Promise<boolean> {
   const job = await claimNextEmailJob();
   if (!job) return false;

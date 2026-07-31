@@ -19,6 +19,15 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email().transform((v) => v.trim().toLowerCase()),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20).max(200),
+  password: passwordSchema,
+});
+
 export const profileUpdateSchema = z.object({
   headline: z.string().max(200).optional(),
   bio: z.string().max(2000).optional(),
@@ -94,6 +103,8 @@ export const adminRevokeSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
 export type ReceiptCreateInput = z.infer<typeof receiptCreateSchema>;
 export type ReceiptUpdateInput = z.infer<typeof receiptUpdateSchema>;

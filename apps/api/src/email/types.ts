@@ -43,7 +43,16 @@ export interface DeliveryFailurePayload {
   customerEmail: string;
 }
 
+export interface PasswordResetPayload {
+  kind: "PASSWORD_RESET";
+  rawToken: string;
+  userId: string;
+  fullName: string;
+  expiresAt: string;
+}
+
 export type EmailPayload =
   | EmailVerificationPayload
   | CustomerVerificationPayload
-  | DeliveryFailurePayload;
+  | DeliveryFailurePayload
+  | PasswordResetPayload;

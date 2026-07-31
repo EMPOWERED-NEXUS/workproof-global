@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   registerSchema,
   loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   profileUpdateSchema,
   receiptCreateSchema,
   receiptUpdateSchema,
@@ -16,12 +18,14 @@ import {
 import type {
   AdminResolveDisputeInput,
   AdminRevokeInput,
+  ForgotPasswordInput,
   LoginInput,
   ProfileUpdateInput,
   ReceiptCreateInput,
   ReceiptListQueryInput,
   ReceiptUpdateInput,
   RegisterInput,
+  ResetPasswordInput,
   VerificationRespondInput,
 } from "@workproof/shared";
 import {
@@ -43,8 +47,10 @@ import {
 import { env } from "../config/env.js";
 import {
   emailVerificationRateLimiter,
+  forgotPasswordRateLimiter,
   loginRateLimiter,
   refreshRateLimiter,
+  resetPasswordRateLimiter,
   verificationRateLimiter,
 } from "../middleware/rateLimit.js";
 import { upload } from "../middleware/upload.js";
@@ -87,6 +93,10 @@ import {
   resendEmailVerification,
   verifyEmailWithToken,
 } from "../services/email-verification.service.js";
+import {
+  requestPasswordReset,
+  resetPasswordWithToken,
+} from "../services/password-reset.service.js";
 import {
   getVerificationByToken,
   respondToVerification,
@@ -312,6 +322,28 @@ apiRouter.post(
   asyncHandler(async (req, res) => {
     const body = validatedBody<{ token: string }>(req);
     const result = await verifyEmailWithToken(body.token, clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.post(
+  "/auth/forgot-password",
+  forgotPasswordRateLimiter,
+  validateBody(forgotPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const body = validatedBody<ForgotPasswordInput>(req);
+    const result = await requestPasswordReset(body.email, clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.post(
+  "/auth/reset-password",
+  resetPasswordRateLimiter,
+  validateBody(resetPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const body = validatedBody<ResetPasswordInput>(req);
+    const result = await resetPasswordWithToken(body.token, body.password, clientIp(req));
     res.json({ success: true, data: result });
   }),
 );

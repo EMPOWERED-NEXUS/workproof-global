@@ -44,8 +44,10 @@ export const api = {
   createReceipt: (data: object) => request<Receipt>('/receipts', { method: 'POST', body: JSON.stringify(data) }),
   updateReceipt: (id: string, data: object) => request<Receipt>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteReceipt: (id: string) => request<{ message: string }>(`/receipts/${id}`, { method: 'DELETE' }),
-  submitReceipt: (id: string) => request<{ verificationToken: string; expiresAt: string }>(`/receipts/${id}/submit`, { method: 'POST' }),
+  submitReceipt: (id: string) => request<{ verificationToken: string; expiresAt: string; attemptNumber: number }>(`/receipts/${id}/submit`, { method: 'POST' }),
   archiveReceipt: (id: string) => request<Receipt>(`/receipts/${id}/archive`, { method: 'POST' }),
+  unarchiveReceipt: (id: string) => request<Receipt>(`/receipts/${id}/unarchive`, { method: 'POST' }),
+  getReceiptEvents: (id: string) => request<ReceiptEvent[]>(`/receipts/${id}/events`),
   addEvidenceLink: (id: string, data: object) => request<Evidence>(`/receipts/${id}/evidence`, { method: 'POST', body: JSON.stringify(data) }),
   workerDashboard: () => request<WorkerDashboard>('/dashboard/worker'),
   orgDashboard: () => request<OrganisationDashboard>('/dashboard/organisation'),
@@ -59,6 +61,7 @@ export const api = {
 
 export type UserRole = 'WORKER' | 'ORGANISATION' | 'ADMIN';
 export type ReceiptStatus = 'DRAFT' | 'PENDING_VERIFICATION' | 'VERIFIED' | 'CORRECTION_REQUESTED' | 'DISPUTED' | 'REVOKED' | 'ARCHIVED';
+export type ProofValidity = 'VALID' | 'INVALID_REVOKED' | 'UNDER_DISPUTE' | 'CORRECTION_REQUIRED' | 'UNAVAILABLE';
 
 export interface User {
   id: string;
@@ -124,7 +127,25 @@ export interface Receipt {
   visibility: string;
   verificationCode?: string | null;
   integrityHash?: string | null;
+  integrityVersion?: number | null;
+  archivedAt?: string | null;
+  revokedAt?: string | null;
+  revocationReason?: string | null;
+  verificationAttemptCount?: number;
+  proofValidity?: ProofValidity;
   evidence?: Evidence[];
+  confirmations?: Array<{ attemptNumber: number; decision: string; confirmedAt: string; comment?: string | null }>;
+  dispute?: { reason: string; status: string } | null;
+}
+
+export interface ReceiptEvent {
+  id: string;
+  eventType: string;
+  actorType: string;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  publicSummary?: string | null;
+  createdAt: string;
 }
 
 export interface Paginated<T> {
@@ -174,9 +195,13 @@ export interface PublicProof {
   workDate: string;
   skillsDemonstrated: string[];
   verifiedAt?: string | null;
-  confirmationDecision?: string | null;
+  verificationStatus: ReceiptStatus;
+  proofValidity: ProofValidity;
   integrityHash?: string | null;
+  integrityVersion?: number | null;
   status: ReceiptStatus;
+  revokedAt?: string | null;
+  revocationReason?: string | null;
   amount?: number | null;
   currency?: string | null;
   evidence: { type: string; description?: string | null; url?: string }[];

@@ -110,7 +110,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .badge-verified { background: #dcfce7; color: var(--success); }
 .badge-draft { background: #e4e4e7; }
 .badge-pending_verification { background: #fef9c3; color: #854d0e; }
+.badge-correction_requested { background: #ffedd5; color: #9a3412; }
 .badge-disputed { background: #fee2e2; color: var(--danger); }
+.badge-revoked { background: #450a0a; color: #fecaca; }
 
 .alert { padding: .85rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
 .alert-error { background: #fef2f2; color: var(--danger); }
@@ -126,7 +128,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .mono { font-family: ui-monospace, monospace; font-size: .85rem; }
 .list-rows { list-style: none; padding: 0; margin: 0; }
 .list-rows li { display: flex; justify-content: space-between; gap: 1rem; padding: .65rem 0; border-bottom: 1px solid #eee; }
-.action-row { margin-top: 1rem; }
+.action-row { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: .75rem; }
 .verify-link { display: block; word-break: break-all; padding: .75rem; background: var(--neutral-100); border-radius: 8px; }
 .section-card { margin-bottom: 1.5rem; }
 .skill-tags { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }

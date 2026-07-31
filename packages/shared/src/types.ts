@@ -6,7 +6,15 @@ export const RECEIPT_STATUSES = [
   "CORRECTION_REQUESTED",
   "DISPUTED",
   "REVOKED",
-  "ARCHIVED",
+  "ARCHIVED", // legacy compatibility only — use archivedAt
+] as const;
+
+export const PROOF_VALIDITIES = [
+  "VALID",
+  "INVALID_REVOKED",
+  "UNDER_DISPUTE",
+  "CORRECTION_REQUIRED",
+  "UNAVAILABLE",
 ] as const;
 export const VISIBILITY_OPTIONS = ["PRIVATE", "UNLISTED", "PUBLIC"] as const;
 export const EVIDENCE_TYPES = ["IMAGE", "DOCUMENT", "LINK"] as const;

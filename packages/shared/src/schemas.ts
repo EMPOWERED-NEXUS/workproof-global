@@ -52,9 +52,9 @@ export const receiptListQuerySchema = z.object({
       "CORRECTION_REQUESTED",
       "DISPUTED",
       "REVOKED",
-      "ARCHIVED",
     ])
     .optional(),
+  archived: z.enum(["true", "false", "all"]).default("false"),
   search: z.string().max(200).optional(),
   skill: z.string().max(80).optional(),
   fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -85,7 +85,7 @@ export const adminUserStatusSchema = z.object({
 
 export const adminResolveDisputeSchema = z.object({
   resolution: z.string().min(5).max(2000),
-  receiptStatus: z.enum(["VERIFIED", "REVOKED", "CORRECTION_REQUESTED"]).optional(),
+  receiptStatus: z.enum(["VERIFIED", "REVOKED", "CORRECTION_REQUESTED"]),
 });
 
 export const adminRevokeSchema = z.object({

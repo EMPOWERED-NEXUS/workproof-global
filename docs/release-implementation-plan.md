@@ -32,7 +32,7 @@
 
 ## 3. Recommended implementation order
 
-### Wave 0A — COMPLETE (this change set)
+### Wave 0A — COMPLETE
 
 - Prisma generated client/engines untracked + gitignored; `db:generate` before build/test
 - RefreshToken model + local migration
@@ -43,15 +43,23 @@
 - GitHub Actions CI with Postgres service
 - Session/auth regression tests
 
-### Wave 0B — Remaining P0 hosting/safety
+### Wave 0B — COMPLETE (this change set)
+
+- Confirmation + VerificationRequest history (1:N)
+- Atomic verification-token claim
+- PostgreSQL sequence receipt numbers (`WPG-YYYY-######`)
+- Correction → resubmit → reconfirm
+- `archivedAt` / revocation fields; no status=`ARCHIVED` writes
+- ReceiptEvent timeline + worker events API
+- Public `proofValidity` states (DEC-01)
+- Lifecycle/concurrency regression tests
+
+### Wave 0C — Evidence storage + email
 
 1. **SEC-P0-001 + EVID-P0-001** — Private evidence; cloud storage abstraction; authorized/signed downloads.
-2. **CONC-P0-001 / CONC-P0-002** — Atomic verification claim + safe receipt numbering.
-3. **LIFE-P0-001** — Confirmation history / correction resubmit fix.
-4. **PROOF-P0-001** — Apply DEC-01 marking for revoked/disputed proof pages.
-5. **EMAIL-P0-001** — Transactional email for verification links; hide raw token in production.
+2. **EMAIL-P0-001** — Transactional email for verification links; hide raw token in production.
 
-**Exit criteria for full Wave 0:** Wave 0A + 0B complete; no public evidence; verify/confirm concurrency-safe; correction cycle works.
+**Exit criteria for full Wave 0:** 0A + 0B + 0C; no public evidence; email delivery.
 
 ### Wave 1 — Credible public web pilot — Week 2–3
 

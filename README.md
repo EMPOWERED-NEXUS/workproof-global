@@ -101,12 +101,13 @@ Health check: `GET /api/v1/health`
 ## Receipt lifecycle
 
 ```
-DRAFT → PENDING_VERIFICATION → VERIFIED
-              ↓                      ↓
-   CORRECTION_REQUESTED         ARCHIVED
-              ↓
-          DISPUTED → REVOKED (admin)
+DRAFT → PENDING_VERIFICATION → VERIFIED | CORRECTION_REQUESTED | DISPUTED
+CORRECTION_REQUESTED → PENDING_VERIFICATION (resubmit)
+DISPUTED → VERIFIED | CORRECTION_REQUESTED | REVOKED (admin)
+VERIFIED → REVOKED (admin)
 ```
+
+Archiving uses `archivedAt` and does **not** replace verification status. Public proofs report `proofValidity` (valid / revoked / disputed / correction required).
 
 ## Tests
 

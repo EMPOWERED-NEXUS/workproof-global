@@ -39,15 +39,19 @@ Shared Zod schemas and TypeScript types used by API validation.
 
 ## Data model
 
-Core entities: `User`, `RefreshToken`, `WorkerProfile`, `Organisation`, `WorkReceipt`, `Evidence`, `VerificationRequest`, `Confirmation`, `Dispute`, `AuditLog`.
+Core entities: `User`, `RefreshToken`, `WorkerProfile`, `Organisation`, `WorkReceipt`, `Evidence`, `VerificationRequest` (1:N attempts), `Confirmation` (1:N history), `Dispute`, `ReceiptEvent`, `AuditLog`.
 
-Receipt lifecycle:
+Receipt lifecycle (Wave 0B):
 
 ```
-DRAFT → PENDING_VERIFICATION → VERIFIED
-              ↓
-   CORRECTION_REQUESTED / DISPUTED / REVOKED / ARCHIVED
+DRAFT → PENDING_VERIFICATION → VERIFIED | CORRECTION_REQUESTED | DISPUTED
+CORRECTION_REQUESTED → PENDING_VERIFICATION (resubmit)
+DISPUTED → VERIFIED | CORRECTION_REQUESTED | REVOKED (admin)
+VERIFIED → REVOKED (admin)
+Archival uses archivedAt (does not replace status). ARCHIVED enum value is legacy-only.
 ```
+
+Verification tokens are claimed atomically (`claimedAt`) before confirmation. Receipt numbers come from PostgreSQL sequence `receipt_number_seq` (`WPG-YYYY-######`). Integrity hashes use versioned canonical payloads (`integrityVersion`).
 
 ## Security
 

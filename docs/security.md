@@ -45,24 +45,29 @@
 ## Verification tokens
 
 - 32-byte random tokens; only SHA-256 hash stored
-- Single-use with expiry
-- Timing-safe hash comparison
+- Multiple attempts per receipt; history preserved
+- Atomic claim (`claimedAt`) before decision; GET never consumes
+- Resubmission invalidates outstanding unused requests
+- Single-use with expiry; replay rejected
 
 ## Verified receipts
 
 - Immutable after customer confirmation
-- Integrity hash from canonical receipt + evidence metadata
+- Versioned integrity hash (v1) from canonical receipt + evidence ids (not temporary URLs alone)
 - `lockedAt` timestamp set on verification
+- Archiving sets `archivedAt` without changing verification status
+- Revocation stores `revokedAt`, `revokedById`, public-safe `revocationReason`
 
 ## Public endpoints
 
-Public proof never exposes:
+Public proof returns `proofValidity` (`VALID`, `INVALID_REVOKED`, `UNDER_DISPUTE`, `CORRECTION_REQUIRED`, `UNAVAILABLE`) and never exposes:
 
 - Customer email or phone
-- Internal UUIDs
-- Token hashes
-- Private audit metadata
-- Income on non-PUBLIC visibility
+- Private confirmation comments
+- Private dispute descriptions
+- Token hashes / verification token data
+- Internal audit metadata, admin email, IP, user agent
+- Income on non-PUBLIC or non-VALID proofs
 
 ## Infrastructure
 

@@ -18,7 +18,13 @@ export default function RegisterPage() {
     try {
       await api.register(form);
       await refresh();
-      navigate('/dashboard');
+      navigate('/dashboard', {
+        state: {
+          registered: true,
+          notice:
+            'We sent a verification email. You can complete your profile and create drafts now; receipt submission requires a verified email.',
+        },
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
@@ -30,7 +36,7 @@ export default function RegisterPage() {
     <Layout>
       <div className="auth-card">
         <h1>Create your work profile</h1>
-        <p className="subtitle">Start building portable, client-confirmed proof of your work.</p>
+        <p className="subtitle">Start building portable, client-confirmed proof of your work. We will email a verification link after signup.</p>
         {error && <Alert tone="error" message={error} />}
         <form onSubmit={(e) => void handleSubmit(e)} className="form-stack">
           <label>

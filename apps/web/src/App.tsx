@@ -9,6 +9,7 @@ import ReceiptsPage from './pages/ReceiptsPage';
 import NewReceiptPage from './pages/NewReceiptPage';
 import ReceiptDetailPage from './pages/ReceiptDetailPage';
 import VerifyPage from './pages/VerifyPage';
+import VerifyEmailPage from './pages/VerifyEmailPage';
 import ProofPage from './pages/ProofPage';
 import ProfilePage from './pages/ProfilePage';
 import WorkerPublicPage from './pages/WorkerPublicPage';
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/verify/:token" element={<VerifyPage />} />
           <Route path="/proof/:verificationCode" element={<ProofPage />} />
           <Route path="/workers/:profileSlug" element={<WorkerPublicPage />} />

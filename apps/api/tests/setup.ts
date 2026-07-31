@@ -29,6 +29,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   const { prisma } = await import("../src/lib/prisma.js");
   await prisma.auditLog.deleteMany();
+  await prisma.receiptEvent.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.confirmation.deleteMany();
   await prisma.dispute.deleteMany();

@@ -19,6 +19,8 @@ enum UserStatus {
   SUSPENDED
 }
 
+/// ARCHIVED retained temporarily for migration compatibility only.
+/// New code must never write ARCHIVED; use archivedAt instead.
 enum ReceiptStatus {
   DRAFT
   PENDING_VERIFICATION
@@ -53,6 +55,13 @@ enum DisputeStatus {
   CLOSED
 }
 
+enum ReceiptEventActorType {
+  WORKER
+  CUSTOMER
+  ADMIN
+  SYSTEM
+}
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   email        String     @unique
@@ -63,11 +72,14 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  workerProfile WorkerProfile?
-  organisation  Organisation?
-  receipts      WorkReceipt[]  @relation("WorkerReceipts")
-  auditLogs     AuditLog[]
-  refreshTokens RefreshToken[]
+  workerProfile   WorkerProfile?
+  organisation    Organisation?
+  receipts        WorkReceipt[]  @relation("WorkerReceipts")
+  revokedReceipts WorkReceipt[]  @relation("ReceiptRevokedBy")
+  auditLogs       AuditLog[]
+  refreshTokens   RefreshToken[]
+  receiptEvents   ReceiptEvent[]
+  resolvedDisputes Dispute[]     @relation("DisputeResolvedBy")
 
   @@map("users")
 }
@@ -145,22 +157,30 @@ model WorkReceipt {
   visibility         Visibility    @default(PRIVATE)
   verificationCode   String?       @unique @map("verification_code")
   integrityHash      String?       @map("integrity_hash")
+  integrityVersion   Int?          @map("integrity_version")
   submittedAt        DateTime?     @map("submitted_at")
   verifiedAt         DateTime?     @map("verified_at")
   lockedAt           DateTime?     @map("locked_at")
+  archivedAt         DateTime?     @map("archived_at")
+  revokedAt          DateTime?     @map("revoked_at")
+  revokedById        String?       @map("revoked_by_id") @db.Uuid
+  revocationReason   String?       @map("revocation_reason")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
-  worker              User                 @relation("WorkerReceipts", fields: [workerId], references: [id], onDelete: Cascade)
-  evidence            Evidence[]
-  verificationRequest VerificationRequest?
-  confirmation        Confirmation?
-  dispute             Dispute?
-  auditLogs           AuditLog[]
+  worker               User                  @relation("WorkerReceipts", fields: [workerId], references: [id], onDelete: Cascade)
+  revokedBy            User?                 @relation("ReceiptRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  evidence             Evidence[]
+  verificationRequests VerificationRequest[]
+  confirmations        Confirmation[]
+  dispute              Dispute?
+  events               ReceiptEvent[]
+  auditLogs            AuditLog[]
 
   @@index([workerId])
   @@index([status])
   @@index([workDate])
+  @@index([archivedAt])
   @@map("work_receipts")
 }
 
@@ -182,48 +202,84 @@ model Evidence {
 }
 
 model VerificationRequest {
-  id            String    @id @default(uuid()) @db.Uuid
-  receiptId     String    @unique @map("receipt_id") @db.Uuid
-  tokenHash     String    @unique @map("token_hash")
-  customerEmail String    @map("customer_email")
-  expiresAt     DateTime  @map("expires_at")
-  usedAt        DateTime? @map("used_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
+  id            String                 @id @default(uuid()) @db.Uuid
+  receiptId     String                 @map("receipt_id") @db.Uuid
+  tokenHash     String                 @unique @map("token_hash")
+  attemptNumber Int                    @map("attempt_number")
+  customerEmail String                 @map("customer_email")
+  expiresAt     DateTime               @map("expires_at")
+  claimedAt     DateTime?              @map("claimed_at")
+  usedAt        DateTime?              @map("used_at")
+  invalidatedAt DateTime?              @map("invalidated_at")
+  result        ConfirmationDecision?  @map("result")
+  createdAt     DateTime               @default(now()) @map("created_at")
 
-  receipt WorkReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receipt       WorkReceipt    @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  confirmations Confirmation[]
 
+  @@index([receiptId, attemptNumber])
+  @@index([receiptId, createdAt])
+  @@index([expiresAt])
   @@map("verification_requests")
 }
 
 model Confirmation {
-  id            String               @id @default(uuid()) @db.Uuid
-  receiptId     String               @unique @map("receipt_id") @db.Uuid
-  decision      ConfirmationDecision
-  customerName  String               @map("customer_name")
-  customerEmail String               @map("customer_email")
-  comment       String?
-  confirmedAt   DateTime             @default(now()) @map("confirmed_at")
-  ipAddress     String?              @map("ip_address")
-  userAgent     String?              @map("user_agent")
+  id                    String               @id @default(uuid()) @db.Uuid
+  receiptId             String               @map("receipt_id") @db.Uuid
+  verificationRequestId String?              @map("verification_request_id") @db.Uuid
+  attemptNumber         Int                  @map("attempt_number")
+  decision              ConfirmationDecision
+  customerName          String               @map("customer_name")
+  customerEmail         String               @map("customer_email")
+  comment               String?
+  confirmedAt           DateTime             @default(now()) @map("confirmed_at")
+  ipAddress             String?              @map("ip_address")
+  userAgent             String?              @map("user_agent")
 
-  receipt WorkReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receipt             WorkReceipt          @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  verificationRequest VerificationRequest? @relation(fields: [verificationRequestId], references: [id], onDelete: SetNull)
 
+  @@index([receiptId, confirmedAt])
+  @@index([receiptId, attemptNumber])
   @@map("confirmations")
 }
 
 model Dispute {
-  id          String        @id @default(uuid()) @db.Uuid
-  receiptId   String        @unique @map("receipt_id") @db.Uuid
-  reason      String
-  description String
-  status      DisputeStatus @default(OPEN)
-  resolution  String?
-  openedAt    DateTime      @default(now()) @map("opened_at")
-  resolvedAt  DateTime?     @map("resolved_at")
+  id           String        @id @default(uuid()) @db.Uuid
+  receiptId    String        @unique @map("receipt_id") @db.Uuid
+  reason       String
+  description  String
+  status       DisputeStatus @default(OPEN)
+  resolution   String?
+  openedAt     DateTime      @default(now()) @map("opened_at")
+  resolvedAt   DateTime?     @map("resolved_at")
+  resolvedById String?       @map("resolved_by_id") @db.Uuid
 
-  receipt WorkReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receipt    WorkReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  resolvedBy User?       @relation("DisputeResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
 
   @@map("disputes")
+}
+
+model ReceiptEvent {
+  id            String                 @id @default(uuid()) @db.Uuid
+  receiptId     String                 @map("receipt_id") @db.Uuid
+  actorId       String?                @map("actor_id") @db.Uuid
+  actorType     ReceiptEventActorType  @map("actor_type")
+  eventType     String                 @map("event_type")
+  fromStatus    ReceiptStatus?         @map("from_status")
+  toStatus      ReceiptStatus?         @map("to_status")
+  publicSummary String?                @map("public_summary")
+  metadata      Json?
+  ipAddress     String?                @map("ip_address")
+  createdAt     DateTime               @default(now()) @map("created_at")
+
+  receipt WorkReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  actor   User?       @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([receiptId, createdAt])
+  @@index([eventType])
+  @@map("receipt_events")
 }
 
 model AuditLog {

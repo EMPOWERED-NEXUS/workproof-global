@@ -71,35 +71,19 @@ export async function getOrganisationDashboard(ownerId: string) {
   const org = await prisma.organisation.findUnique({ where: { ownerId } });
   if (!org) throw AppError.notFound("Organisation profile not found.");
 
-  const workers = await prisma.workerProfile.findMany({
-    take: 10,
-    include: { user: { select: { fullName: true } } },
-  });
-
-  const receipts = await prisma.workReceipt.findMany({
-    where: { status: { in: ["VERIFIED", "PENDING_VERIFICATION", "DISPUTED"] } },
-    take: 20,
-    orderBy: { createdAt: "desc" },
-    include: { worker: { select: { fullName: true } } },
-  });
-
+  // Privacy containment: until worker assignments exist, never return platform-wide data.
   return {
     organisation: org,
-    note:
-      "Cohort assignment is not yet implemented. This dashboard shows platform-wide aggregate demonstration data for MVP preview.",
-    workerCount: workers.length,
-    sampleWorkers: workers.map((w) => ({
-      fullName: w.user.fullName,
-      profileSlug: w.profileSlug,
-      skills: w.skills,
-    })),
-    recentPlatformReceipts: receipts.map((r) => ({
-      serviceTitle: r.serviceTitle,
-      status: r.status,
-      workerName: r.worker.fullName,
-      workDate: r.workDate,
-    })),
-    verifiedReceiptCount: receipts.filter((r) => r.status === "VERIFIED").length,
+    note: "No workers have been assigned to this organisation yet.",
+    workerCount: 0,
+    sampleWorkers: [] as Array<{ fullName: string; profileSlug: string; skills: string[] }>,
+    recentPlatformReceipts: [] as Array<{
+      serviceTitle: string;
+      status: string;
+      workerName: string;
+      workDate: Date;
+    }>,
+    verifiedReceiptCount: 0,
   };
 }
 
@@ -171,6 +155,13 @@ export async function updateUserStatus(
     data: { status },
     select: { id: true, email: true, fullName: true, role: true, status: true },
   });
+
+  if (status === "SUSPENDED") {
+    await prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 
   await createAuditLog({
     actorId: adminId,

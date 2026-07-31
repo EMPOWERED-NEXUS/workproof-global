@@ -12,10 +12,14 @@ Express 5 REST API with:
 
 - **Prisma ORM** + PostgreSQL (via `@prisma/adapter-pg`)
 - **Zod** validation (shared schemas from `@workproof/shared`)
-- **JWT** in HTTP-only cookies for session auth
+- **Access JWT** (short-lived) + **rotating refresh tokens** (hashed at rest)
+- **Browser**: HttpOnly access + refresh cookies; **Mobile**: Bearer access token via `Authorization` and `X-Client-Platform: mobile`
 - **bcrypt** password hashing
-- **Multer** for development file uploads
-- **Swagger** at `/api-docs`
+- **Evidence storage abstraction** (`local` for dev/test, `supabase` private bucket for production)
+- **Authorized evidence downloads** (stream local / short-lived signed URL for Supabase) — no public `/uploads`
+- **Email outbox** with AES-256-GCM payloads, console or transactional HTTP provider, background dispatcher
+- **Swagger** only when `ENABLE_API_DOCS=true`
+- Health (`/api/v1/health`) and readiness (`/api/v1/readiness`) probes
 - Layered structure: routes → services → Prisma
 
 ### `apps/web`
@@ -27,30 +31,62 @@ React 19 SPA with Vite 8:
 - Custom CSS design system (navy, emerald, gold, cream)
 - Vite dev proxy to API on port 4000
 
+### `apps/mobile`
+
+Expo Router foundation (worker MVP screens follow in a later wave). Uses `EXPO_PUBLIC_API_URL` and will store mobile tokens in SecureStore after Wave 0A auth foundation.
+
 ### `packages/shared`
 
 Shared Zod schemas and TypeScript types used by API validation.
 
 ## Data model
 
-Core entities: `User`, `WorkerProfile`, `Organisation`, `WorkReceipt`, `Evidence`, `VerificationRequest`, `Confirmation`, `Dispute`, `AuditLog`.
+Core entities: `User` (incl. `emailVerifiedAt`), `RefreshToken`, `EmailVerificationToken`, `EmailOutbox`, `WorkerProfile`, `Organisation`, `WorkReceipt`, `Evidence` (private storage keys / `externalUrl` for LINK; legacy `url` retained for migration safety only), `VerificationRequest` (1:N attempts), `Confirmation` (1:N history), `Dispute`, `ReceiptEvent`, `AuditLog`.
 
-Receipt lifecycle:
+### Evidence storage (Wave 0C)
+
+- Object keys: `users/{workerId}/receipts/{receiptId}/evidence/{evidenceId}/{generatedName}`
+- Canonical file identity is `storageKey` (or `externalUrl` for LINK), not a public URL
+- Public proof pages expose evidence **metadata** only (type, description, filename category, count); LINK URLs only when visibility allows
+- Antivirus/malware scanning remains a **deployment** requirement for larger public rollout
+
+### Email delivery (Wave 0C)
+
+- Registration enqueues account verification; submission enqueues customer verification
+- Jobs claimed with `FOR UPDATE SKIP LOCKED`; exponential backoff; stuck `PROCESSING` recovery
+- Sensitive payload cleared after successful send
+
+### Staging readiness (Wave 0D)
+
+- Password reset tokens + branded reset email
+- Structured request logging / request IDs
+- Readiness checks config presence (no external provider pings)
+- `Dockerfile.api` / `Dockerfile.web` + Nginx SPA config
+- Single-phase `scripts/api-release.sh` (`prisma migrate deploy` then start)
+- Admin bootstrap CLI (never auto-run on deploy)
+
+Receipt lifecycle (Wave 0B):
 
 ```
-DRAFT → PENDING_VERIFICATION → VERIFIED
-              ↓
-   CORRECTION_REQUESTED / DISPUTED / REVOKED / ARCHIVED
+DRAFT → PENDING_VERIFICATION → VERIFIED | CORRECTION_REQUESTED | DISPUTED
+CORRECTION_REQUESTED → PENDING_VERIFICATION (resubmit)
+DISPUTED → VERIFIED | CORRECTION_REQUESTED | REVOKED (admin)
+VERIFIED → REVOKED (admin)
+Archival uses archivedAt (does not replace status). ARCHIVED enum value is legacy-only.
 ```
+
+Verification tokens are claimed atomically (`claimedAt`) before confirmation. Receipt numbers come from PostgreSQL sequence `receipt_number_seq` (`WPG-YYYY-######`). Integrity hashes use versioned canonical payloads (`integrityVersion`).
 
 ## Security
 
-- Helmet, CORS restricted to `FRONTEND_URL`
-- Rate limits on login and verification
-- Verification tokens stored as SHA-256 hashes only
+- Helmet, CORS allow-list via `ALLOWED_ORIGINS`
+- Origin checks for cookie-authenticated browser mutations
+- Rate limits on login, refresh, and verification
+- Verification and refresh tokens stored as SHA-256 hashes only
 - Verified receipts are immutable
 - Public proof endpoints redact customer PII
+- Organisation dashboards do not expose unassigned platform data
 
 ## Local development
 
-PostgreSQL runs in Docker on port **5434**. Prisma Client generates to `apps/api/generated/prisma`.
+PostgreSQL runs in Docker on port **5434**. Prisma Client is **generated locally/CI** into `apps/api/generated/prisma` (gitignored — run `npm run db:generate`).

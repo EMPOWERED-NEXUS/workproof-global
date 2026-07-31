@@ -1,45 +1,17 @@
-import fs from "node:fs";
-import path from "node:path";
 import multer from "multer";
 import { env } from "../config/env.js";
 import { AppError } from "../lib/errors.js";
+import { APPROVED_MIME_TYPES } from "../lib/file-validation.js";
 
-const uploadDir = path.resolve(process.cwd(), env.UPLOAD_DIR);
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    const ext = path.extname(file.originalname);
-    cb(null, `${unique}${ext}`);
-  },
-});
-
-const allowedMimes = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
-
+/** Memory storage — validated and written through the storage provider (never public static). */
 export const upload = multer({
-  storage,
-  limits: { fileSize: env.MAX_UPLOAD_SIZE_MB * 1024 * 1024 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: env.MAX_UPLOAD_SIZE_MB * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
-    if (!allowedMimes.has(file.mimetype)) {
-      cb(AppError.badRequest("Unsupported file type."));
+    if (!APPROVED_MIME_TYPES.has(file.mimetype) && file.mimetype !== "image/jpg") {
+      cb(AppError.badRequest("Unsupported file type. Allowed: JPEG, PNG, WebP, PDF, DOCX."));
       return;
     }
     cb(null, true);
   },
 });
-
-export function evidenceTypeFromMime(mime: string): "IMAGE" | "DOCUMENT" {
-  return mime.startsWith("image/") ? "IMAGE" : "DOCUMENT";
-}

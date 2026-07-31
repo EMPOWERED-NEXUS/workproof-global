@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Layout, PageHeader, Alert } from '../components/Layout';
+import { EmailVerificationBanner } from '../components/EmailVerificationBanner';
 import { useAuth } from '../hooks/use-auth';
 import { api, formatXaf, type WorkerDashboard } from '../lib/api';
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const location = useLocation();
   const [data, setData] = useState<WorkerDashboard | null>(null);
   const [error, setError] = useState('');
+  const notice = (location.state as { notice?: string } | null)?.notice;
 
   useEffect(() => {
     if (user?.role === 'WORKER') {
@@ -33,7 +36,9 @@ export default function DashboardPage() {
 
   return (
     <Layout>
+      <EmailVerificationBanner />
       <PageHeader title={`Welcome, ${user?.fullName}`} subtitle="Your verified work portfolio at a glance" action={<Link to="/receipts/new" className="btn btn-primary">New receipt</Link>} />
+      {notice && <Alert tone="success" message={notice} />}
       {error && <Alert tone="error" message={error} />}
       {!data ? (
         <p className="page-loading">Loading dashboard…</p>

@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -6,6 +6,14 @@ export function hashToken(token: string): string {
 
 export function generateVerificationToken(): string {
   return randomBytes(32).toString("hex");
+}
+
+export function generateRefreshToken(): string {
+  return randomBytes(48).toString("base64url");
+}
+
+export function generateTokenFamilyId(): string {
+  return randomUUID();
 }
 
 export function generateVerificationCode(): string {
@@ -17,11 +25,13 @@ export function generateVerificationCode(): string {
   return code;
 }
 
+/** @deprecated Prefer allocateReceiptNumber via PostgreSQL sequence (WPG-YYYY-######). */
 export function generateReceiptNumber(sequence: number): string {
   const year = new Date().getFullYear();
-  return `WP-${year}-${String(sequence).padStart(5, "0")}`;
+  return `WPG-${year}-${String(sequence).padStart(6, "0")}`;
 }
 
+/** @deprecated Prefer computeIntegrityHashV1 from integrity.ts */
 export function computeIntegrityHash(payload: Record<string, unknown>): string {
   const canonical = JSON.stringify(payload, Object.keys(payload).sort());
   return createHash("sha256").update(canonical).digest("hex");

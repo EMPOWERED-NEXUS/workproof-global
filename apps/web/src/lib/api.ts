@@ -11,6 +11,15 @@ export interface ApiError {
   errors?: Record<string, string[]>;
 }
 
+export class ApiRequestError extends Error {
+  readonly code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.code = code;
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -24,9 +33,10 @@ async function request<T>(
     },
   });
 
-  const body = (await res.json()) as ApiSuccess<T> | ApiError;
+  const body = (await res.json()) as ApiSuccess<T> | (ApiError & { code?: string });
   if (!res.ok || !body.success) {
-    throw new Error((body as ApiError).message ?? 'Request failed');
+    const err = body as ApiError & { code?: string };
+    throw new ApiRequestError(err.message ?? 'Request failed', err.code);
   }
   return (body as ApiSuccess<T>).data;
 }
@@ -35,6 +45,16 @@ export const api = {
   register: (data: object) => request<{ user: User; token: string }>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data: object) => request<{ user: User; token: string }>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   logout: () => request<{ message: string }>('/auth/logout', { method: 'POST' }),
+  forgotPassword: (email: string) =>
+    request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (token: string, password: string) =>
+    request<{ reset: boolean }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    }),
   me: () => request<UserProfile>('/auth/me'),
   getProfile: () => request<WorkerProfile>('/profile'),
   updateProfile: (data: object) => request<WorkerProfile>('/profile', { method: 'PATCH', body: JSON.stringify(data) }),
@@ -44,9 +64,24 @@ export const api = {
   createReceipt: (data: object) => request<Receipt>('/receipts', { method: 'POST', body: JSON.stringify(data) }),
   updateReceipt: (id: string, data: object) => request<Receipt>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteReceipt: (id: string) => request<{ message: string }>(`/receipts/${id}`, { method: 'DELETE' }),
-  submitReceipt: (id: string) => request<{ verificationToken: string; expiresAt: string }>(`/receipts/${id}/submit`, { method: 'POST' }),
+  submitReceipt: (id: string) => request<{ verificationToken?: string; expiresAt: string; attemptNumber: number; deliveryQueued?: boolean }>(`/receipts/${id}/submit`, { method: 'POST' }),
+  resendCustomerVerification: (id: string) => request<{ expiresAt: string; attemptNumber: number; deliveryQueued?: boolean; resendCooldownSeconds?: number }>(`/receipts/${id}/resend-verification`, { method: 'POST' }),
+  getVerificationDelivery: (id: string) => request<VerificationDelivery>(`/receipts/${id}/verification-delivery`),
   archiveReceipt: (id: string) => request<Receipt>(`/receipts/${id}/archive`, { method: 'POST' }),
+  unarchiveReceipt: (id: string) => request<Receipt>(`/receipts/${id}/unarchive`, { method: 'POST' }),
+  getReceiptEvents: (id: string) => request<ReceiptEvent[]>(`/receipts/${id}/events`),
   addEvidenceLink: (id: string, data: object) => request<Evidence>(`/receipts/${id}/evidence`, { method: 'POST', body: JSON.stringify(data) }),
+  addEvidenceFile: async (id: string, file: File, description?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (description) form.append('description', description);
+    return request<Evidence>(`/receipts/${id}/evidence`, { method: 'POST', body: form });
+  },
+  removeEvidence: (id: string, evidenceId: string) => request<{ message: string }>(`/receipts/${id}/evidence/${evidenceId}`, { method: 'DELETE' }),
+  downloadEvidenceUrl: (id: string, evidenceId: string) => `${API_BASE}/receipts/${id}/evidence/${evidenceId}/download`,
+  getEmailVerificationStatus: () => request<EmailVerificationStatus>('/auth/email-verification-status'),
+  resendEmailVerification: () => request<{ sent: boolean; cooldownSeconds: number }>('/auth/resend-email-verification', { method: 'POST' }),
+  verifyEmail: (token: string) => request<{ verified: boolean; verifiedAt: string }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
   workerDashboard: () => request<WorkerDashboard>('/dashboard/worker'),
   orgDashboard: () => request<OrganisationDashboard>('/dashboard/organisation'),
   getVerification: (token: string) => request<VerificationView>(`/verification/${token}`),
@@ -59,6 +94,7 @@ export const api = {
 
 export type UserRole = 'WORKER' | 'ORGANISATION' | 'ADMIN';
 export type ReceiptStatus = 'DRAFT' | 'PENDING_VERIFICATION' | 'VERIFIED' | 'CORRECTION_REQUESTED' | 'DISPUTED' | 'REVOKED' | 'ARCHIVED';
+export type ProofValidity = 'VALID' | 'INVALID_REVOKED' | 'UNDER_DISPUTE' | 'CORRECTION_REQUIRED' | 'UNAVAILABLE';
 
 export interface User {
   id: string;
@@ -66,11 +102,31 @@ export interface User {
   fullName: string;
   role: UserRole;
   status: string;
+  emailVerified?: boolean;
+  emailVerifiedAt?: string | null;
 }
 
 export interface UserProfile extends User {
   workerProfile?: WorkerProfile | null;
   organisation?: Organisation | null;
+}
+
+export interface EmailVerificationStatus {
+  email: string;
+  emailVerified: boolean;
+  emailVerifiedAt: string | null;
+  resendAvailableInSeconds: number;
+  resendCooldownSeconds: number;
+}
+
+export interface VerificationDelivery {
+  status: string | null;
+  lastAttemptedAt: string | null;
+  sentAt: string | null;
+  attemptCount: number;
+  resendAvailable: boolean;
+  resendAvailableInSeconds: number;
+  verificationAttemptNumber: number;
 }
 
 export interface WorkerProfile {
@@ -103,8 +159,15 @@ export interface Organisation {
 export interface Evidence {
   id: string;
   type: string;
-  url: string;
   description?: string | null;
+  originalFilename?: string | null;
+  safeFilename?: string | null;
+  mimeType?: string | null;
+  size?: number | null;
+  checksumSha256?: string | null;
+  filenameCategory?: string;
+  externalUrl?: string | null;
+  url?: string | null;
 }
 
 export interface Receipt {
@@ -124,7 +187,25 @@ export interface Receipt {
   visibility: string;
   verificationCode?: string | null;
   integrityHash?: string | null;
+  integrityVersion?: number | null;
+  archivedAt?: string | null;
+  revokedAt?: string | null;
+  revocationReason?: string | null;
+  verificationAttemptCount?: number;
+  proofValidity?: ProofValidity;
   evidence?: Evidence[];
+  confirmations?: Array<{ attemptNumber: number; decision: string; confirmedAt: string; comment?: string | null }>;
+  dispute?: { reason: string; status: string } | null;
+}
+
+export interface ReceiptEvent {
+  id: string;
+  eventType: string;
+  actorType: string;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  publicSummary?: string | null;
+  createdAt: string;
 }
 
 export interface Paginated<T> {
@@ -174,9 +255,13 @@ export interface PublicProof {
   workDate: string;
   skillsDemonstrated: string[];
   verifiedAt?: string | null;
-  confirmationDecision?: string | null;
+  verificationStatus: ReceiptStatus;
+  proofValidity: ProofValidity;
   integrityHash?: string | null;
+  integrityVersion?: number | null;
   status: ReceiptStatus;
+  revokedAt?: string | null;
+  revocationReason?: string | null;
   amount?: number | null;
   currency?: string | null;
   evidence: { type: string; description?: string | null; url?: string }[];

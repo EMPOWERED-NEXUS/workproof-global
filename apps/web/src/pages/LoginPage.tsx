@@ -1,16 +1,18 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Layout, Alert } from '../components/Layout';
 import { useAuth } from '../hooks/use-auth';
 import { api } from '../lib/api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { refresh } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const sessionExpired = (location.state as { reason?: string } | null)?.reason === 'session';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,6 +34,9 @@ export default function LoginPage() {
       <div className="auth-card">
         <h1>Sign in</h1>
         <p className="subtitle">Access your WorkProof dashboard and receipts.</p>
+        {sessionExpired && (
+          <Alert tone="info" message="Your session expired. Please sign in again." />
+        )}
         {error && <Alert tone="error" message={error} />}
         <form onSubmit={(e) => void handleSubmit(e)} className="form-stack">
           <label>
@@ -47,6 +52,8 @@ export default function LoginPage() {
           </button>
         </form>
         <p className="form-footer">
+          <Link to="/forgot-password">Forgot password?</Link>
+          {' · '}
           New to WorkProof? <Link to="/register">Create your profile</Link>
         </p>
       </div>

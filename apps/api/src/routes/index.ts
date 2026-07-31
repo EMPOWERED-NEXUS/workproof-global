@@ -1,7 +1,10 @@
 import { Router } from "express";
+import { z } from "zod";
 import {
   registerSchema,
   loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   profileUpdateSchema,
   receiptCreateSchema,
   receiptUpdateSchema,
@@ -15,12 +18,14 @@ import {
 import type {
   AdminResolveDisputeInput,
   AdminRevokeInput,
+  ForgotPasswordInput,
   LoginInput,
   ProfileUpdateInput,
   ReceiptCreateInput,
   ReceiptListQueryInput,
   ReceiptUpdateInput,
   RegisterInput,
+  ResetPasswordInput,
   VerificationRespondInput,
 } from "@workproof/shared";
 import {
@@ -33,13 +38,32 @@ import {
 import {
   authenticate,
   authorize,
-  clearAuthCookie,
-  setAuthCookie,
-  signToken,
+  clearSessionCookies,
+  getClientPlatform,
+  setSessionCookies,
+  signAccessToken,
+  type AuthUser,
 } from "../middleware/auth.js";
-import { loginRateLimiter, verificationRateLimiter } from "../middleware/rateLimit.js";
-import { upload, evidenceTypeFromMime } from "../middleware/upload.js";
+import { env } from "../config/env.js";
+import {
+  emailVerificationRateLimiter,
+  forgotPasswordRateLimiter,
+  loginRateLimiter,
+  refreshRateLimiter,
+  resetPasswordRateLimiter,
+  verificationRateLimiter,
+} from "../middleware/rateLimit.js";
+import { upload } from "../middleware/upload.js";
 import { registerUser, loginUser, getUserById } from "../services/auth.service.js";
+import {
+  createSession,
+  listUserSessions,
+  revokeAllUserSessions,
+  revokeOwnedSession,
+  revokeRefreshToken,
+  rotateRefreshToken,
+  type IssuedSession,
+} from "../services/session.service.js";
 import {
   getOwnProfile,
   updateOwnProfile,
@@ -51,16 +75,33 @@ import {
   getReceiptForWorker,
   updateReceipt,
   deleteReceipt,
-  addEvidence,
-  removeEvidence,
   submitReceipt,
+  resendCustomerVerification,
+  getVerificationDeliveryStatus,
   archiveReceipt,
+  unarchiveReceipt,
   getPublicProof,
 } from "../services/receipt.service.js";
+import {
+  addFileEvidence,
+  addLinkEvidence,
+  removeEvidence,
+  downloadEvidence,
+} from "../services/evidence.service.js";
+import {
+  getEmailVerificationStatus,
+  resendEmailVerification,
+  verifyEmailWithToken,
+} from "../services/email-verification.service.js";
+import {
+  requestPasswordReset,
+  resetPasswordWithToken,
+} from "../services/password-reset.service.js";
 import {
   getVerificationByToken,
   respondToVerification,
 } from "../services/verification.service.js";
+import { listReceiptEventsForWorker } from "../services/receipt-event.service.js";
 import {
   getWorkerDashboard,
   getOrganisationDashboard,
@@ -71,7 +112,16 @@ import {
   revokeReceipt,
   resolveDispute,
 } from "../services/dashboard.service.js";
+
+const verifyEmailBodySchema = z.object({
+  token: z.string().min(20).max(200),
+});
+
 export const apiRouter = Router();
+
+const refreshBodySchema = z.object({
+  refreshToken: z.string().min(20).optional(),
+});
 
 function param(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -82,15 +132,72 @@ function clientIp(req: { ip?: string; socket?: { remoteAddress?: string } }): st
   return req.ip ?? req.socket?.remoteAddress;
 }
 
+function sessionMeta(req: {
+  ip?: string;
+  socket?: { remoteAddress?: string };
+  get: (name: string) => string | undefined;
+}) {
+  return {
+    ipAddress: clientIp(req),
+    userAgent: req.get("user-agent"),
+  };
+}
+
+function deliverSession(
+  req: Parameters<typeof getClientPlatform>[0],
+  res: {
+    status: (code: number) => { json: (body: unknown) => void };
+    json: (body: unknown) => void;
+  },
+  user: AuthUser,
+  session: IssuedSession,
+  statusCode = 200,
+): void {
+  const platform = getClientPlatform(req);
+  setSessionCookies(res as never, session);
+
+  const payload =
+    platform === "mobile"
+      ? {
+          user,
+          accessToken: session.accessToken,
+          refreshToken: session.refreshToken,
+          expiresIn: env.ACCESS_TOKEN_EXPIRES_IN,
+        }
+      : { user };
+
+  if (statusCode === 201) {
+    res.status(201).json({ success: true, data: payload });
+    return;
+  }
+  res.json({ success: true, data: payload });
+}
+
+function readRefreshToken(req: {
+  cookies?: Record<string, string>;
+  body?: unknown;
+}): string | undefined {
+  const fromCookie = req.cookies?.[env.REFRESH_COOKIE_NAME];
+  const parsed = refreshBodySchema.safeParse(req.body ?? {});
+  const fromBody = parsed.success ? parsed.data.refreshToken : undefined;
+  return fromBody || fromCookie;
+}
+
 // Auth
 apiRouter.post(
   "/auth/register",
   validateBody(registerSchema),
   asyncHandler(async (req, res) => {
     const user = await registerUser(validatedBody<RegisterInput>(req), clientIp(req));
-    const token = signToken(user);
-    setAuthCookie(res, token);
-    res.status(201).json({ success: true, data: { user, token } });
+    const authUser: AuthUser = {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      status: user.status,
+    };
+    const session = await createSession(authUser, sessionMeta(req), signAccessToken);
+    deliverSession(req, res, authUser, session, 201);
   }),
 );
 
@@ -101,17 +208,64 @@ apiRouter.post(
   asyncHandler(async (req, res) => {
     const body = validatedBody<LoginInput>(req);
     const user = await loginUser(body.email, body.password);
-    const token = signToken(user);
-    setAuthCookie(res, token);
-    res.json({ success: true, data: { user, token } });
+    const authUser: AuthUser = {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      status: user.status,
+    };
+    const session = await createSession(authUser, sessionMeta(req), signAccessToken);
+    deliverSession(req, res, authUser, session);
+  }),
+);
+
+apiRouter.post(
+  "/auth/refresh",
+  refreshRateLimiter,
+  asyncHandler(async (req, res) => {
+    const presented = readRefreshToken(req);
+    if (!presented) {
+      res.status(401).json({ success: false, message: "Refresh token required." });
+      return;
+    }
+    const session = await rotateRefreshToken(presented, sessionMeta(req), signAccessToken);
+    const platform = getClientPlatform(req);
+    setSessionCookies(res, session);
+    if (platform === "mobile") {
+      res.json({
+        success: true,
+        data: {
+          accessToken: session.accessToken,
+          refreshToken: session.refreshToken,
+          expiresIn: env.ACCESS_TOKEN_EXPIRES_IN,
+        },
+      });
+      return;
+    }
+    res.json({ success: true, data: { message: "Session refreshed." } });
   }),
 );
 
 apiRouter.post(
   "/auth/logout",
-  asyncHandler(async (_req, res) => {
-    clearAuthCookie(res);
+  asyncHandler(async (req, res) => {
+    const presented = readRefreshToken(req);
+    if (presented) {
+      await revokeRefreshToken(presented, req.user?.id, sessionMeta(req));
+    }
+    clearSessionCookies(res);
     res.json({ success: true, data: { message: "Logged out." } });
+  }),
+);
+
+apiRouter.post(
+  "/auth/logout-all",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const count = await revokeAllUserSessions(req.user!.id, req.user!.id, sessionMeta(req));
+    clearSessionCookies(res);
+    res.json({ success: true, data: { message: "All sessions revoked.", revokedCount: count } });
   }),
 );
 
@@ -121,6 +275,76 @@ apiRouter.get(
   asyncHandler(async (req, res) => {
     const user = await getUserById(req.user!.id);
     res.json({ success: true, data: user });
+  }),
+);
+
+apiRouter.get(
+  "/auth/sessions",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const sessions = await listUserSessions(req.user!.id);
+    res.json({ success: true, data: sessions });
+  }),
+);
+
+apiRouter.delete(
+  "/auth/sessions/:id",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    await revokeOwnedSession(req.user!.id, param(req.params.id), sessionMeta(req));
+    res.json({ success: true, data: { message: "Session revoked." } });
+  }),
+);
+
+apiRouter.get(
+  "/auth/email-verification-status",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const status = await getEmailVerificationStatus(req.user!.id);
+    res.json({ success: true, data: status });
+  }),
+);
+
+apiRouter.post(
+  "/auth/resend-email-verification",
+  authenticate,
+  emailVerificationRateLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await resendEmailVerification(req.user!.id, clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.post(
+  "/auth/verify-email",
+  emailVerificationRateLimiter,
+  validateBody(verifyEmailBodySchema),
+  asyncHandler(async (req, res) => {
+    const body = validatedBody<{ token: string }>(req);
+    const result = await verifyEmailWithToken(body.token, clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.post(
+  "/auth/forgot-password",
+  forgotPasswordRateLimiter,
+  validateBody(forgotPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const body = validatedBody<ForgotPasswordInput>(req);
+    const result = await requestPasswordReset(body.email, clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.post(
+  "/auth/reset-password",
+  resetPasswordRateLimiter,
+  validateBody(resetPasswordSchema),
+  asyncHandler(async (req, res) => {
+    const body = validatedBody<ResetPasswordInput>(req);
+    const result = await resetPasswordWithToken(body.token, body.password, clientIp(req));
+    res.json({ success: true, data: result });
   }),
 );
 
@@ -228,17 +452,19 @@ apiRouter.post(
   asyncHandler(async (req, res) => {
     const receiptId = param(req.params.id);
     if (req.file) {
-      const evidence = await addEvidence(
+      if (!req.file.buffer) {
+        res.status(400).json({ success: false, message: "Upload failed." });
+        return;
+      }
+      const evidence = await addFileEvidence(
         req.user!.id,
         receiptId,
         {
-          type: evidenceTypeFromMime(req.file.mimetype),
-          url: `/uploads/${req.file.filename}`,
-          originalFilename: req.file.originalname,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          description: typeof req.body.description === "string" ? req.body.description : undefined,
+          buffer: req.file.buffer,
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
         },
+        typeof req.body.description === "string" ? req.body.description : undefined,
         clientIp(req),
       );
       res.status(201).json({ success: true, data: evidence });
@@ -246,13 +472,27 @@ apiRouter.post(
     }
 
     const parsed = evidenceLinkSchema.parse(req.body);
-    const evidence = await addEvidence(
+    const evidence = await addLinkEvidence(
       req.user!.id,
       receiptId,
-      { type: "LINK", url: parsed.url, description: parsed.description },
+      { url: parsed.url, description: parsed.description },
       clientIp(req),
     );
     res.status(201).json({ success: true, data: evidence });
+  }),
+);
+
+apiRouter.get(
+  "/receipts/:id/evidence/:evidenceId/download",
+  authenticate,
+  authorize("WORKER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    await downloadEvidence(
+      { id: req.user!.id, role: req.user!.role },
+      param(req.params.id),
+      param(req.params.evidenceId),
+      res,
+    );
   }),
 );
 
@@ -277,12 +517,53 @@ apiRouter.post(
 );
 
 apiRouter.post(
+  "/receipts/:id/resend-verification",
+  authenticate,
+  authorize("WORKER"),
+  emailVerificationRateLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await resendCustomerVerification(req.user!.id, param(req.params.id), clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.get(
+  "/receipts/:id/verification-delivery",
+  authenticate,
+  authorize("WORKER"),
+  asyncHandler(async (req, res) => {
+    const result = await getVerificationDeliveryStatus(req.user!.id, param(req.params.id));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.post(
   "/receipts/:id/archive",
   authenticate,
   authorize("WORKER"),
   asyncHandler(async (req, res) => {
     const receipt = await archiveReceipt(req.user!.id, param(req.params.id), clientIp(req));
     res.json({ success: true, data: receipt });
+  }),
+);
+
+apiRouter.post(
+  "/receipts/:id/unarchive",
+  authenticate,
+  authorize("WORKER"),
+  asyncHandler(async (req, res) => {
+    const receipt = await unarchiveReceipt(req.user!.id, param(req.params.id), clientIp(req));
+    res.json({ success: true, data: receipt });
+  }),
+);
+
+apiRouter.get(
+  "/receipts/:id/events",
+  authenticate,
+  authorize("WORKER"),
+  asyncHandler(async (req, res) => {
+    const events = await listReceiptEventsForWorker(req.user!.id, param(req.params.id));
+    res.json({ success: true, data: events });
   }),
 );
 
@@ -414,6 +695,3 @@ apiRouter.post(
     res.json({ success: true, data: result });
   }),
 );
-
-// Static uploads in development
-apiRouter.use("/uploads", (_req, res, next) => next());

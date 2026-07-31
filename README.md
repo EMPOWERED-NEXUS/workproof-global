@@ -41,13 +41,18 @@ Copy API environment template:
 cp apps/api/.env.example apps/api/.env
 ```
 
+Set a strong `ACCESS_TOKEN_SECRET` (local `.env.example` includes a placeholder). Configure `ALLOWED_ORIGINS` for browser CORS.
+
 Default `DATABASE_URL`:
 
 ```
 postgresql://workproof:workproof_dev_password@localhost:5434/workproof?schema=public
 ```
 
-Web app uses Vite proxy — copy `apps/web/.env.example` if running web against a remote API.
+Web app uses Vite proxy and **cookie sessions** (HttpOnly access + refresh cookies).
+Mobile clients must send `X-Client-Platform: mobile` to receive Bearer tokens in JSON for SecureStore.
+
+Copy `apps/web/.env.example` if running web against a remote API.
 
 ## Docker PostgreSQL
 
@@ -59,11 +64,15 @@ Database: `workproof` · User: `workproof` · Password: `workproof_dev_password`
 
 ## Migrations & seed
 
+Prisma Client is generated (not committed). Always generate before typecheck/build/test:
+
 ```bash
 npm run db:generate
 npm run db:migrate
 npm run db:seed
 ```
+
+CI runs `prisma migrate deploy` against an ephemeral test Postgres service only — never against production.
 
 ## Development
 
@@ -92,12 +101,13 @@ Health check: `GET /api/v1/health`
 ## Receipt lifecycle
 
 ```
-DRAFT → PENDING_VERIFICATION → VERIFIED
-              ↓                      ↓
-   CORRECTION_REQUESTED         ARCHIVED
-              ↓
-          DISPUTED → REVOKED (admin)
+DRAFT → PENDING_VERIFICATION → VERIFIED | CORRECTION_REQUESTED | DISPUTED
+CORRECTION_REQUESTED → PENDING_VERIFICATION (resubmit)
+DISPUTED → VERIFIED | CORRECTION_REQUESTED | REVOKED (admin)
+VERIFIED → REVOKED (admin)
 ```
+
+Archiving uses `archivedAt` and does **not** replace verification status. Public proofs report `proofValidity` (valid / revoked / disputed / correction required).
 
 ## Tests
 
@@ -123,12 +133,21 @@ npm run build
 
 **Out of scope:** Lending, credit scoring, blockchain, escrow, payment processing, native mobile apps, AI risk scoring.
 
+## Wave 0C — Evidence & email
+
+- Evidence files use a storage abstraction (`STORAGE_PROVIDER=local|supabase`). Local is for development/test only; production requires a **private** Supabase Storage bucket.
+- `/uploads` is **not** public. Downloads go through `GET /api/v1/receipts/:id/evidence/:evidenceId/download` after authorization (owner or admin).
+- Web/mobile upload only through the API. Service-role keys never enter Vite or Expo public env vars.
+- Account email verification is required before receipt **submission** (drafts allowed before verify).
+- Customer verification emails use a durable encrypted outbox with retries (`EMAIL_PROVIDER=console|transactional`).
+
+See `apps/api/.env.example`, `docs/architecture.md`, and `docs/security.md`.
+
 ## Known post-MVP improvements
 
 - PDF export for proof pages
 - Organisation cohort assignment for workers
-- Email delivery of verification links
-- S3-compatible evidence storage
+- Antivirus/malware scanning on evidence uploads (deployment requirement)
 - Multi-language support
 
 ## License

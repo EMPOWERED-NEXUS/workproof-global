@@ -41,6 +41,7 @@ beforeEach(async () => {
   await prisma.receiptEvent.deleteMany();
   await prisma.emailOutbox.deleteMany();
   await prisma.emailVerificationToken.deleteMany();
+  await prisma.passwordResetToken.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.confirmation.deleteMany();
   await prisma.dispute.deleteMany();

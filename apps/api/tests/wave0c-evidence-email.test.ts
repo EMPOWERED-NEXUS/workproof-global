@@ -337,19 +337,56 @@ describe("Wave 0C evidence and email", () => {
   });
 
   it("dispatcher claims atomically and does not duplicate send", async () => {
+    const { resetEmailProviderForTests, getConsoleEmailProviderForTests } = await import(
+      "../src/email/providers/index.js"
+    );
+    resetEmailProviderForTests();
+
     await request(app).post("/api/v1/auth/register").send({
       email: "dispatch@test.com",
       password: "SecurePass1",
       fullName: "Dispatch",
       role: "WORKER",
     });
-    const [a, b] = await Promise.all([claimNextEmailJob(), claimNextEmailJob()]);
-    expect(a).toBeTruthy();
-    expect(b).toBeNull();
-    await processClaimedEmailJob(a!.id);
-    const sent = await prisma.emailOutbox.findUniqueOrThrow({ where: { id: a!.id } });
+
+    const pendingJobs = await prisma.emailOutbox.findMany({
+      where: { recipientEmail: "dispatch@test.com", status: "PENDING" },
+    });
+    expect(pendingJobs).toHaveLength(1);
+    expect(pendingJobs[0]!.status).toBe("PENDING");
+    expect(pendingJobs[0]!.nextAttemptAt.getTime()).toBeLessThanOrEqual(Date.now() + 50);
+
+    const claims = await Promise.all([claimNextEmailJob(), claimNextEmailJob()]);
+    const successfulClaims = claims.filter(
+      (job): job is NonNullable<typeof job> => job !== null,
+    );
+    expect(successfulClaims).toHaveLength(1);
+
+    const claimedJob = successfulClaims[0]!;
+    await processClaimedEmailJob(claimedJob.id);
+
+    const sent = await prisma.emailOutbox.findUniqueOrThrow({ where: { id: claimedJob.id } });
     expect(sent.status).toBe("SENT");
     expect(sent.encryptedPayload).toBeNull();
+    expect(sent.providerMessageId).toBeTruthy();
+
+    const sentForRecipient = await prisma.emailOutbox.findMany({
+      where: { recipientEmail: "dispatch@test.com", status: "SENT" },
+    });
+    expect(sentForRecipient).toHaveLength(1);
+
+    const duplicateMessageIds = await prisma.emailOutbox.count({
+      where: { providerMessageId: sent.providerMessageId },
+    });
+    expect(duplicateMessageIds).toBe(1);
+
+    const consoleProvider = getConsoleEmailProviderForTests();
+    expect(consoleProvider).toBeTruthy();
+    const sends = consoleProvider!.sent.filter((s) => s.to === "dispatch@test.com");
+    expect(sends).toHaveLength(1);
+
+    // Loser claim left no second PROCESSING/SENT job for the same delivery.
+    expect(await claimNextEmailJob()).toBeNull();
   });
 
   it("failed jobs retry then mark FAILED after max attempts", async () => {

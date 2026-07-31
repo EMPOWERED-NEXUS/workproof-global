@@ -9,3 +9,16 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+
+# Prisma generated client and engines (regenerate with npm run db:generate)
+apps/api/generated/
+**/query_engine*.tmp*
+**/*.node.tmp*
+
+# Runtime uploads and local caches
+uploads/
+apps/api/uploads/
+apps/mobile/.expo/
+**/.expo/
+*.tsbuildinfo
+package-lock.before-react-fix.json

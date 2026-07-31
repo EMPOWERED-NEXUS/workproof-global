@@ -45,6 +45,16 @@ export const api = {
   register: (data: object) => request<{ user: User; token: string }>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data: object) => request<{ user: User; token: string }>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   logout: () => request<{ message: string }>('/auth/logout', { method: 'POST' }),
+  forgotPassword: (email: string) =>
+    request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (token: string, password: string) =>
+    request<{ reset: boolean }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    }),
   me: () => request<UserProfile>('/auth/me'),
   getProfile: () => request<WorkerProfile>('/profile'),
   updateProfile: (data: object) => request<WorkerProfile>('/profile', { method: 'PATCH', body: JSON.stringify(data) }),

@@ -141,3 +141,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .evidence-forms { display: grid; gap: .75rem; margin-top: 1rem; }
 .file-upload input[type="file"] { display: block; margin-top: .35rem; }
 .btn-sm { padding: .35rem .7rem; font-size: .85rem; }
+.password-reqs { list-style: none; padding: 0; margin: .5rem 0 0; font-size: .9rem; color: var(--neutral-700); }
+.password-reqs .ok { color: var(--success); }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--emerald, #0F766E);
+  outline-offset: 2px;
+}

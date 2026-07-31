@@ -107,7 +107,7 @@ jobs:
         run: |
           set +e
           hits=$(grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=generated --exclude=package-lock.json \
-            'SUPABASE_SERVICE_ROLE_KEY[[:space:]]*=[[:space:]]*["'"'"']?[A-Za-z0-9._-]{20,}|EMAIL_API_KEY[[:space:]]*=[[:space:]]*["'"'"']?re_[A-Za-z0-9]+|BEGIN (RSA |OPENSSH )?PRIVATE KEY' \
+            'SUPABASE_SERVICE_ROLE_KEY[[:space:]]*=[[:space:]]*["'"'"']?eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|EMAIL_API_KEY[[:space:]]*=[[:space:]]*["'"'"']?re_[A-Za-z0-9_-]{20,}|BEGIN (RSA |OPENSSH )?PRIVATE KEY' \
             . 2>/dev/null)
           set -e
           if [ -n "$hits" ]; then

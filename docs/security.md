@@ -42,6 +42,29 @@
 | `GET /auth/sessions` | List active sessions |
 | `DELETE /auth/sessions/:id` | Revoke own session |
 
+## Email verification (Wave 0C)
+
+- `User.emailVerifiedAt` required before `POST /receipts/:id/submit` (`EMAIL_VERIFICATION_REQUIRED`)
+- Login, profile, and draft creation remain allowed before verification
+- Email verification tokens stored as SHA-256 hashes only; one-time atomic claim
+- Resend invalidates prior unused tokens; cooldown + rate limit
+
+## Customer verification email
+
+- Built only from trusted `WEB_APP_URL` (never from user-supplied redirect origins)
+- Raw customer tokens are not returned to production browser clients (`ALLOW_DEV_VERIFICATION_TOKEN` for local/test only)
+- Outbox payloads encrypted with `EMAIL_PAYLOAD_ENCRYPTION_KEY` (must not reuse JWT secret)
+- Console email provider forbidden in production
+
+## Evidence (Wave 0C)
+
+- No public static `/uploads` directory
+- Local storage forbidden in production; Supabase service-role key API-only
+- Magic-byte MIME validation; approved types: JPEG, PNG, WebP, PDF, DOCX (no SVG/HTML/executables)
+- SHA-256 checksum stored; soft-delete via `deletedAt`
+- Downloads authorized for receipt owner and platform admin; unrelated workers get 404
+- Short-lived signed URLs (`SIGNED_URL_EXPIRY_SECONDS`) for Supabase; local streams via API
+
 ## Verification tokens
 
 - 32-byte random tokens; only SHA-256 hash stored

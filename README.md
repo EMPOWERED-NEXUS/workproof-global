@@ -133,12 +133,21 @@ npm run build
 
 **Out of scope:** Lending, credit scoring, blockchain, escrow, payment processing, native mobile apps, AI risk scoring.
 
+## Wave 0C — Evidence & email
+
+- Evidence files use a storage abstraction (`STORAGE_PROVIDER=local|supabase`). Local is for development/test only; production requires a **private** Supabase Storage bucket.
+- `/uploads` is **not** public. Downloads go through `GET /api/v1/receipts/:id/evidence/:evidenceId/download` after authorization (owner or admin).
+- Web/mobile upload only through the API. Service-role keys never enter Vite or Expo public env vars.
+- Account email verification is required before receipt **submission** (drafts allowed before verify).
+- Customer verification emails use a durable encrypted outbox with retries (`EMAIL_PROVIDER=console|transactional`).
+
+See `apps/api/.env.example`, `docs/architecture.md`, and `docs/security.md`.
+
 ## Known post-MVP improvements
 
 - PDF export for proof pages
 - Organisation cohort assignment for workers
-- Email delivery of verification links
-- S3-compatible evidence storage
+- Antivirus/malware scanning on evidence uploads (deployment requirement)
 - Multi-language support
 
 ## License

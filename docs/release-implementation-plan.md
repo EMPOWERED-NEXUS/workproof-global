@@ -54,26 +54,27 @@
 - Public `proofValidity` states (DEC-01)
 - Lifecycle/concurrency regression tests
 
-### Wave 0C — Evidence storage + email
+### Wave 0C — COMPLETE (local; not committed)
 
-1. **SEC-P0-001 + EVID-P0-001** — Private evidence; cloud storage abstraction; authorized/signed downloads.
-2. **EMAIL-P0-001** — Transactional email for verification links; hide raw token in production.
+1. Removed public `/uploads`; private storage abstraction (`local` | `supabase`)
+2. Authorized download endpoint + magic-byte upload validation + checksums
+3. User email verification + durable encrypted email outbox + dispatcher retries
+4. Customer verification email on submit + resend + delivery status API
+5. Minimum web UX for evidence upload/download/remove and email verification
+6. CI uses local storage + console email + test encryption key (no external providers)
 
-**Exit criteria for full Wave 0:** 0A + 0B + 0C; no public evidence; email delivery.
+**Exit criteria for full Wave 0:** 0A + 0B + 0C met locally.
 
 ### Wave 1 — Credible public web pilot — Week 2–3
 
-1. Password reset + forgot UI (AUTH-P1-001).
-2. Email verification per DEC-02.
-3. `COOKIE_SECURE` / env hard-fail in production.
-4. Readiness endpoint with DB check.
-5. Web file upload + evidence remove + draft delete/archive/edit/filters.
-6. Admin UI mutations with confirm dialogs.
-7. Web consumes `@workproof/shared`.
-8. Public proof QR; basic PDF export.
-9. Legal acceptance capture.
-10. npm audit triage (DEP-SEC-001).
-11. Staging deploy runbook: Supabase Postgres, hosted API, hosted web, custom domain HTTPS, migrate deploy, backups.
+1. Password reset + forgot UI (AUTH-P1-001) — **not** in Wave 0C.
+2. Staging deploy runbook: private Supabase evidence bucket, transactional email secrets, HTTPS `WEB_APP_URL`, migrate deploy, backups.
+3. Admin UI mutations with confirm dialogs.
+4. Web consumes `@workproof/shared`.
+5. Public proof QR; basic PDF export.
+6. Legal acceptance capture.
+7. npm audit triage (DEP-SEC-001).
+8. Production monitoring for mail failures / storage errors.
 
 **Exit criteria:** External pilot workers complete full receipt lifecycle without manual DB/token hacks; admin can revoke/resolve; staging monitored.
 

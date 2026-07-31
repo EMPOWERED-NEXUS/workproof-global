@@ -13,9 +13,12 @@ Interactive docs: mounted only when `ENABLE_API_DOCS=true` (see `/api-docs`).
 | POST | `/auth/refresh` | Rotate refresh token |
 | POST | `/auth/logout` | Revoke current refresh session |
 | POST | `/auth/logout-all` | Revoke all sessions |
-| GET | `/auth/me` | Current user |
+| GET | `/auth/me` | Current user (includes `emailVerified`) |
 | GET | `/auth/sessions` | List active sessions |
 | DELETE | `/auth/sessions/:id` | Revoke own session |
+| GET | `/auth/email-verification-status` | Authenticated verification status |
+| POST | `/auth/resend-email-verification` | Resend account verification email |
+| POST | `/auth/verify-email` | Consume one-time email verification token |
 
 ## Worker profile
 
@@ -34,9 +37,12 @@ Interactive docs: mounted only when `ENABLE_API_DOCS=true` (see `/api-docs`).
 | GET | `/receipts/:id` | WORKER (owner) |
 | PATCH | `/receipts/:id` | WORKER (draft/correction only) |
 | DELETE | `/receipts/:id` | WORKER (draft only) |
-| POST | `/receipts/:id/evidence` | WORKER |
-| DELETE | `/receipts/:id/evidence/:evidenceId` | WORKER |
-| POST | `/receipts/:id/submit` | WORKER — invalidates prior open tokens; returns new opaque token |
+| POST | `/receipts/:id/evidence` | WORKER — multipart file or LINK JSON |
+| GET | `/receipts/:id/evidence/:evidenceId/download` | WORKER (owner) or ADMIN |
+| DELETE | `/receipts/:id/evidence/:evidenceId` | WORKER — soft-delete |
+| POST | `/receipts/:id/submit` | WORKER — requires verified email; queues customer email; raw token only in test/dev |
+| POST | `/receipts/:id/resend-verification` | WORKER — pending only; cooldown; invalidates prior request |
+| GET | `/receipts/:id/verification-delivery` | WORKER — safe delivery status (no tokens/payloads) |
 | POST | `/receipts/:id/archive` | WORKER — sets `archivedAt`, does **not** change status |
 | POST | `/receipts/:id/unarchive` | WORKER |
 | GET | `/receipts/:id/events` | WORKER (owner) — safe timeline |

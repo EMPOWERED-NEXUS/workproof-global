@@ -15,7 +15,9 @@ Express 5 REST API with:
 - **Access JWT** (short-lived) + **rotating refresh tokens** (hashed at rest)
 - **Browser**: HttpOnly access + refresh cookies; **Mobile**: Bearer access token via `Authorization` and `X-Client-Platform: mobile`
 - **bcrypt** password hashing
-- **Multer** for development file uploads
+- **Evidence storage abstraction** (`local` for dev/test, `supabase` private bucket for production)
+- **Authorized evidence downloads** (stream local / short-lived signed URL for Supabase) — no public `/uploads`
+- **Email outbox** with AES-256-GCM payloads, console or transactional HTTP provider, background dispatcher
 - **Swagger** only when `ENABLE_API_DOCS=true`
 - Health (`/api/v1/health`) and readiness (`/api/v1/readiness`) probes
 - Layered structure: routes → services → Prisma
@@ -39,7 +41,20 @@ Shared Zod schemas and TypeScript types used by API validation.
 
 ## Data model
 
-Core entities: `User`, `RefreshToken`, `WorkerProfile`, `Organisation`, `WorkReceipt`, `Evidence`, `VerificationRequest` (1:N attempts), `Confirmation` (1:N history), `Dispute`, `ReceiptEvent`, `AuditLog`.
+Core entities: `User` (incl. `emailVerifiedAt`), `RefreshToken`, `EmailVerificationToken`, `EmailOutbox`, `WorkerProfile`, `Organisation`, `WorkReceipt`, `Evidence` (private storage keys / `externalUrl` for LINK; legacy `url` retained for migration safety only), `VerificationRequest` (1:N attempts), `Confirmation` (1:N history), `Dispute`, `ReceiptEvent`, `AuditLog`.
+
+### Evidence storage (Wave 0C)
+
+- Object keys: `users/{workerId}/receipts/{receiptId}/evidence/{evidenceId}/{generatedName}`
+- Canonical file identity is `storageKey` (or `externalUrl` for LINK), not a public URL
+- Public proof pages expose evidence **metadata** only (type, description, filename category, count); LINK URLs only when visibility allows
+- Antivirus/malware scanning remains a **deployment** requirement for larger public rollout
+
+### Email delivery (Wave 0C)
+
+- Registration enqueues account verification; submission enqueues customer verification
+- Jobs claimed with `FOR UPDATE SKIP LOCKED`; exponential backoff; stuck `PROCESSING` recovery
+- Sensitive payload cleared after successful send
 
 Receipt lifecycle (Wave 0B):
 

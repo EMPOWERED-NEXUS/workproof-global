@@ -41,13 +41,18 @@ Copy API environment template:
 cp apps/api/.env.example apps/api/.env
 ```
 
+Set a strong `ACCESS_TOKEN_SECRET` (local `.env.example` includes a placeholder). Configure `ALLOWED_ORIGINS` for browser CORS.
+
 Default `DATABASE_URL`:
 
 ```
 postgresql://workproof:workproof_dev_password@localhost:5434/workproof?schema=public
 ```
 
-Web app uses Vite proxy — copy `apps/web/.env.example` if running web against a remote API.
+Web app uses Vite proxy and **cookie sessions** (HttpOnly access + refresh cookies).
+Mobile clients must send `X-Client-Platform: mobile` to receive Bearer tokens in JSON for SecureStore.
+
+Copy `apps/web/.env.example` if running web against a remote API.
 
 ## Docker PostgreSQL
 
@@ -59,11 +64,15 @@ Database: `workproof` · User: `workproof` · Password: `workproof_dev_password`
 
 ## Migrations & seed
 
+Prisma Client is generated (not committed). Always generate before typecheck/build/test:
+
 ```bash
 npm run db:generate
 npm run db:migrate
 npm run db:seed
 ```
+
+CI runs `prisma migrate deploy` against an ephemeral test Postgres service only — never against production.
 
 ## Development
 

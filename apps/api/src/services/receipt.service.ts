@@ -22,13 +22,22 @@ import {
 import { allocateReceiptNumber } from "../lib/receipt-number.js";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
+import { enqueueEmailJob } from "../email/outbox.service.js";
+import { filenameCategory } from "../lib/file-validation.js";
 import { createAuditLog } from "./audit.service.js";
+import { serializeEvidenceSafe } from "./evidence.service.js";
 import { recordReceiptEvent } from "./receipt-event.service.js";
 import type { ReceiptCreateInput, ReceiptUpdateInput } from "@workproof/shared";
 
+const activeEvidence = { deletedAt: null as Date | null };
+
 function serializeReceipt(receipt: Record<string, unknown>) {
+  const evidence = Array.isArray(receipt.evidence)
+    ? (receipt.evidence as Array<Parameters<typeof serializeEvidenceSafe>[0]>).map(serializeEvidenceSafe)
+    : receipt.evidence;
   return {
     ...receipt,
+    evidence,
     amount: receipt.amount != null ? Number(receipt.amount) : null,
   };
 }
@@ -49,7 +58,7 @@ export async function createReceipt(workerId: string, input: ReceiptCreateInput,
       skillsDemonstrated: input.skillsDemonstrated ?? [],
       visibility: (input.visibility ?? "PRIVATE") as Visibility,
     },
-    include: { evidence: true, confirmations: true, verificationRequests: true },
+    include: { evidence: { where: activeEvidence }, confirmations: true, verificationRequests: true },
   });
 
   await recordReceiptEvent({
@@ -116,7 +125,7 @@ export async function listReceipts(
     prisma.workReceipt.count({ where }),
     prisma.workReceipt.findMany({
       where,
-      include: { evidence: true },
+      include: { evidence: { where: activeEvidence } },
       orderBy: [{ [query.sortBy]: query.sortOrder }, { id: "asc" }],
       skip: (query.page - 1) * query.limit,
       take: query.limit,
@@ -138,7 +147,7 @@ export async function getReceiptForWorker(workerId: string, receiptId: string) {
   const receipt = await prisma.workReceipt.findFirst({
     where: { id: receiptId, workerId },
     include: {
-      evidence: true,
+      evidence: { where: activeEvidence },
       confirmations: { orderBy: { attemptNumber: "asc" } },
       dispute: true,
       verificationRequests: { orderBy: { attemptNumber: "asc" } },
@@ -187,7 +196,7 @@ export async function updateReceipt(
         ? { visibility: input.visibility as Visibility }
         : {}),
     },
-    include: { evidence: true },
+    include: { evidence: { where: activeEvidence } },
   });
 
   await recordReceiptEvent({
@@ -232,87 +241,17 @@ export async function deleteReceipt(workerId: string, receiptId: string, ip?: st
   });
 }
 
-export async function addEvidence(
-  workerId: string,
-  receiptId: string,
-  evidence: {
-    type: "IMAGE" | "DOCUMENT" | "LINK";
-    url: string;
-    originalFilename?: string;
-    mimeType?: string;
-    size?: number;
-    description?: string;
-  },
-  ip?: string,
-) {
-  const receipt = await prisma.workReceipt.findFirst({ where: { id: receiptId, workerId } });
-  if (!receipt) throw AppError.notFound("Receipt not found.");
-  if (!canEditReceipt(receipt.status, receipt.lockedAt)) {
-    throw AppError.badRequest("Evidence cannot be added to a locked receipt.");
-  }
-
-  const created = await prisma.evidence.create({
-    data: { receiptId, ...evidence },
-  });
-
-  await recordReceiptEvent({
-    receiptId,
-    actorId: workerId,
-    actorType: "WORKER",
-    eventType: "evidence_added",
-    publicSummary: "Evidence attached.",
-    ipAddress: ip,
-  });
-
-  await createAuditLog({
-    actorId: workerId,
-    receiptId,
-    action: "EVIDENCE_ADDED",
-    entityType: "Evidence",
-    entityId: created.id,
-    ipAddress: ip,
-  });
-
-  return created;
-}
-
-export async function removeEvidence(
-  workerId: string,
-  receiptId: string,
-  evidenceId: string,
-  ip?: string,
-) {
-  const receipt = await prisma.workReceipt.findFirst({ where: { id: receiptId, workerId } });
-  if (!receipt) throw AppError.notFound("Receipt not found.");
-  if (!canEditReceipt(receipt.status, receipt.lockedAt)) {
-    throw AppError.badRequest("Evidence cannot be removed from a locked receipt.");
-  }
-
-  const evidence = await prisma.evidence.findFirst({ where: { id: evidenceId, receiptId } });
-  if (!evidence) throw AppError.notFound("Evidence not found.");
-
-  await prisma.evidence.delete({ where: { id: evidenceId } });
-
-  await recordReceiptEvent({
-    receiptId,
-    actorId: workerId,
-    actorType: "WORKER",
-    eventType: "evidence_removed",
-    publicSummary: "Evidence removed.",
-    ipAddress: ip,
-  });
-
-  await createAuditLog({
-    actorId: workerId,
-    receiptId,
-    action: "EVIDENCE_REMOVED",
-    entityType: "Evidence",
-    entityId: evidenceId,
-    ipAddress: ip,
-  });
-}
-
 export async function submitReceipt(workerId: string, receiptId: string, ip?: string) {
+  const worker = await prisma.user.findUnique({ where: { id: workerId } });
+  if (!worker) throw AppError.notFound("User not found.");
+  if (!worker.emailVerifiedAt) {
+    throw AppError.badRequest(
+      "Verify your email before submitting a receipt for customer verification.",
+      undefined,
+      "EMAIL_VERIFICATION_REQUIRED",
+    );
+  }
+
   const receipt = await prisma.workReceipt.findFirst({
     where: { id: receiptId, workerId },
     include: { verificationRequests: { orderBy: { attemptNumber: "desc" }, take: 1 } },
@@ -332,6 +271,7 @@ export async function submitReceipt(workerId: string, receiptId: string, ip?: st
   const nextAttempt = (receipt.verificationRequests[0]?.attemptNumber ?? 0) + 1;
   const fromStatus = receipt.status;
   const eventType = fromStatus === "CORRECTION_REQUESTED" ? "resubmitted" : "submitted";
+  const verificationRequestId = randomUUID();
 
   await prisma.$transaction(async (tx) => {
     await tx.verificationRequest.updateMany({
@@ -345,7 +285,7 @@ export async function submitReceipt(workerId: string, receiptId: string, ip?: st
 
     await tx.verificationRequest.create({
       data: {
-        id: randomUUID(),
+        id: verificationRequestId,
         receiptId,
         tokenHash,
         attemptNumber: nextAttempt,
@@ -375,6 +315,29 @@ export async function submitReceipt(workerId: string, receiptId: string, ip?: st
       },
       tx,
     );
+
+    await enqueueEmailJob(
+      {
+        type: "CUSTOMER_VERIFICATION",
+        recipientEmail: receipt.customerEmail,
+        recipientName: receipt.customerName,
+        relatedUserId: workerId,
+        relatedReceiptId: receiptId,
+        relatedVerificationRequestId: verificationRequestId,
+        payload: {
+          kind: "CUSTOMER_VERIFICATION",
+          rawToken: token,
+          receiptId,
+          workerName: worker.fullName,
+          serviceTitle: receipt.serviceTitle,
+          workDate: receipt.workDate.toISOString().slice(0, 10),
+          customerName: receipt.customerName,
+          expiresAt: expiresAt.toISOString(),
+          attemptNumber: nextAttempt,
+        },
+      },
+      tx,
+    );
   });
 
   await createAuditLog({
@@ -388,9 +351,152 @@ export async function submitReceipt(workerId: string, receiptId: string, ip?: st
   });
 
   return {
-    verificationToken: token,
+    ...(env.ALLOW_DEV_VERIFICATION_TOKEN ? { verificationToken: token } : {}),
     expiresAt: expiresAt.toISOString(),
     attemptNumber: nextAttempt,
+    deliveryQueued: true,
+  };
+}
+
+export async function resendCustomerVerification(workerId: string, receiptId: string, ip?: string) {
+  const worker = await prisma.user.findUnique({ where: { id: workerId } });
+  if (!worker) throw AppError.notFound("User not found.");
+
+  const receipt = await prisma.workReceipt.findFirst({
+    where: { id: receiptId, workerId },
+    include: { verificationRequests: { orderBy: { attemptNumber: "desc" }, take: 1 } },
+  });
+  if (!receipt) throw AppError.notFound("Receipt not found.");
+  if (receipt.status !== "PENDING_VERIFICATION") {
+    throw AppError.badRequest("Only pending verification receipts can resend the customer email.");
+  }
+
+  const latest = receipt.verificationRequests[0];
+  if (latest) {
+    const elapsed = Date.now() - latest.createdAt.getTime();
+    const cooldownMs = env.CUSTOMER_VERIFICATION_RESEND_COOLDOWN_SECONDS * 1000;
+    if (elapsed < cooldownMs) {
+      const remaining = Math.ceil((cooldownMs - elapsed) / 1000);
+      throw AppError.badRequest(`Please wait ${remaining}s before resending verification.`, {
+        cooldown: [`${remaining}`],
+      });
+    }
+  }
+
+  const token = generateVerificationToken();
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(
+    Date.now() + env.VERIFICATION_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000,
+  );
+  const nextAttempt = (latest?.attemptNumber ?? 0) + 1;
+  const verificationRequestId = randomUUID();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.verificationRequest.updateMany({
+      where: { receiptId, usedAt: null, invalidatedAt: null },
+      data: { invalidatedAt: new Date() },
+    });
+
+    await tx.verificationRequest.create({
+      data: {
+        id: verificationRequestId,
+        receiptId,
+        tokenHash,
+        attemptNumber: nextAttempt,
+        customerEmail: receipt.customerEmail,
+        expiresAt,
+      },
+    });
+
+    await recordReceiptEvent(
+      {
+        receiptId,
+        actorId: workerId,
+        actorType: "WORKER",
+        eventType: "verification_resent",
+        fromStatus: "PENDING_VERIFICATION",
+        toStatus: "PENDING_VERIFICATION",
+        publicSummary: `Customer verification email resent (attempt ${nextAttempt}).`,
+        ipAddress: ip,
+      },
+      tx,
+    );
+
+    await enqueueEmailJob(
+      {
+        type: "CUSTOMER_VERIFICATION_RESEND",
+        recipientEmail: receipt.customerEmail,
+        recipientName: receipt.customerName,
+        relatedUserId: workerId,
+        relatedReceiptId: receiptId,
+        relatedVerificationRequestId: verificationRequestId,
+        payload: {
+          kind: "CUSTOMER_VERIFICATION_RESEND",
+          rawToken: token,
+          receiptId,
+          workerName: worker.fullName,
+          serviceTitle: receipt.serviceTitle,
+          workDate: receipt.workDate.toISOString().slice(0, 10),
+          customerName: receipt.customerName,
+          expiresAt: expiresAt.toISOString(),
+          attemptNumber: nextAttempt,
+        },
+      },
+      tx,
+    );
+  });
+
+  await createAuditLog({
+    actorId: workerId,
+    receiptId,
+    action: "CUSTOMER_VERIFICATION_RESENT",
+    entityType: "WorkReceipt",
+    entityId: receiptId,
+    ipAddress: ip,
+    metadata: { attemptNumber: nextAttempt },
+  });
+
+  return {
+    ...(env.ALLOW_DEV_VERIFICATION_TOKEN ? { verificationToken: token } : {}),
+    expiresAt: expiresAt.toISOString(),
+    attemptNumber: nextAttempt,
+    deliveryQueued: true,
+    resendCooldownSeconds: env.CUSTOMER_VERIFICATION_RESEND_COOLDOWN_SECONDS,
+  };
+}
+
+export async function getVerificationDeliveryStatus(workerId: string, receiptId: string) {
+  const receipt = await prisma.workReceipt.findFirst({ where: { id: receiptId, workerId } });
+  if (!receipt) throw AppError.notFound("Receipt not found.");
+
+  const latestJob = await prisma.emailOutbox.findFirst({
+    where: {
+      relatedReceiptId: receiptId,
+      type: { in: ["CUSTOMER_VERIFICATION", "CUSTOMER_VERIFICATION_RESEND"] },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const latestRequest = await prisma.verificationRequest.findFirst({
+    where: { receiptId },
+    orderBy: { attemptNumber: "desc" },
+  });
+
+  let resendAvailableInSeconds = 0;
+  if (latestRequest && receipt.status === "PENDING_VERIFICATION") {
+    const elapsed = Date.now() - latestRequest.createdAt.getTime();
+    const cooldownMs = env.CUSTOMER_VERIFICATION_RESEND_COOLDOWN_SECONDS * 1000;
+    resendAvailableInSeconds = Math.max(0, Math.ceil((cooldownMs - elapsed) / 1000));
+  }
+
+  return {
+    status: latestJob?.status ?? null,
+    lastAttemptedAt: latestJob?.claimedAt?.toISOString() ?? latestJob?.updatedAt.toISOString() ?? null,
+    sentAt: latestJob?.sentAt?.toISOString() ?? null,
+    attemptCount: latestJob?.attemptCount ?? 0,
+    resendAvailable: receipt.status === "PENDING_VERIFICATION" && resendAvailableInSeconds === 0,
+    resendAvailableInSeconds,
+    verificationAttemptNumber: latestRequest?.attemptNumber ?? 0,
   };
 }
 
@@ -404,7 +510,7 @@ export async function archiveReceipt(workerId: string, receiptId: string, ip?: s
   const updated = await prisma.workReceipt.update({
     where: { id: receiptId },
     data: { archivedAt: new Date() },
-    include: { evidence: true },
+    include: { evidence: { where: activeEvidence } },
   });
 
   await recordReceiptEvent({
@@ -440,7 +546,7 @@ export async function unarchiveReceipt(workerId: string, receiptId: string, ip?:
   const updated = await prisma.workReceipt.update({
     where: { id: receiptId },
     data: { archivedAt: null },
-    include: { evidence: true },
+    include: { evidence: { where: activeEvidence } },
   });
 
   await recordReceiptEvent({
@@ -461,7 +567,7 @@ export async function getPublicProof(verificationCode: string) {
   const receipt = await prisma.workReceipt.findUnique({
     where: { verificationCode },
     include: {
-      evidence: true,
+      evidence: { where: activeEvidence },
       worker: { include: { workerProfile: true } },
     },
   });
@@ -481,6 +587,7 @@ export async function getPublicProof(verificationCode: string) {
   // CORRECTION_REQUESTED with a prior code: accessible but not valid proof
   const proofValidity = proofValidityForStatus(receipt.status);
   const showAmount = receipt.visibility === "PUBLIC" && receipt.status === "VERIFIED";
+  const allowPublicLinks = receipt.visibility === "PUBLIC" || receipt.visibility === "UNLISTED";
 
   return {
     receiptNumber: receipt.receiptNumber,
@@ -506,9 +613,13 @@ export async function getPublicProof(verificationCode: string) {
         ? receipt.evidence.map((e) => ({
             type: e.type,
             description: e.description,
-            ...(e.type === "LINK" ? { url: e.url } : {}),
+            filenameCategory: filenameCategory(e.mimeType, e.type),
+            ...(e.type === "LINK" && allowPublicLinks
+              ? { url: e.externalUrl ?? e.url ?? undefined }
+              : {}),
           }))
         : [],
+    evidenceCount: receipt.status === "VERIFIED" ? receipt.evidence.length : 0,
   };
 }
 
@@ -530,7 +641,7 @@ export async function applyVerificationDecision(input: {
   return prisma.$transaction(async (tx) => {
     const receipt = await tx.workReceipt.findUnique({
       where: { id: input.receiptId },
-      include: { evidence: true },
+      include: { evidence: { where: activeEvidence } },
     });
     if (!receipt) throw AppError.notFound("Receipt not found.");
     if (receipt.status !== "PENDING_VERIFICATION") {

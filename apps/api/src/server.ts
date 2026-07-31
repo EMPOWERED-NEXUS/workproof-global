@@ -1,11 +1,21 @@
 import { app } from "./app.js";
 import { env } from "./config/env.js";
+import { startEmailDispatcher, stopEmailDispatcher } from "./email/dispatcher.js";
 import { disconnectDatabase } from "./lib/prisma.js";
 
 const server = app.listen(env.PORT, () => {
   console.log(`WorkProof Global API running at http://localhost:${env.PORT}`);
   if (env.ENABLE_API_DOCS) {
     console.log(`API docs at http://localhost:${env.PORT}/api-docs`);
+  }
+  // Dispatcher starts after listen; temporary provider outages must not block boot.
+  try {
+    startEmailDispatcher();
+  } catch (error) {
+    console.error(
+      "Email dispatcher failed to start.",
+      error instanceof Error ? error.message : "unknown",
+    );
   }
 });
 
@@ -21,6 +31,8 @@ async function shutdown(signal: string): Promise<void> {
     process.exit(1);
   }, 10_000);
   forceTimer.unref();
+
+  await stopEmailDispatcher();
 
   server.close(async () => {
     try {

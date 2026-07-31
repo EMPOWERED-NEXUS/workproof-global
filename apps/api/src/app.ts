@@ -1,4 +1,3 @@
-import path from "node:path";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import express from "express";
@@ -36,8 +35,6 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(apiRateLimiter);
 app.use(csrfOriginGuard);
-
-app.use("/uploads", express.static(path.resolve(process.cwd(), env.UPLOAD_DIR)));
 
 app.get("/api/v1/health", (_request, response) => {
   response.status(200).json({

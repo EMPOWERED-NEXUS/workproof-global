@@ -42,11 +42,12 @@ import {
 } from "../middleware/auth.js";
 import { env } from "../config/env.js";
 import {
+  emailVerificationRateLimiter,
   loginRateLimiter,
   refreshRateLimiter,
   verificationRateLimiter,
 } from "../middleware/rateLimit.js";
-import { upload, evidenceTypeFromMime } from "../middleware/upload.js";
+import { upload } from "../middleware/upload.js";
 import { registerUser, loginUser, getUserById } from "../services/auth.service.js";
 import {
   createSession,
@@ -68,13 +69,24 @@ import {
   getReceiptForWorker,
   updateReceipt,
   deleteReceipt,
-  addEvidence,
-  removeEvidence,
   submitReceipt,
+  resendCustomerVerification,
+  getVerificationDeliveryStatus,
   archiveReceipt,
   unarchiveReceipt,
   getPublicProof,
 } from "../services/receipt.service.js";
+import {
+  addFileEvidence,
+  addLinkEvidence,
+  removeEvidence,
+  downloadEvidence,
+} from "../services/evidence.service.js";
+import {
+  getEmailVerificationStatus,
+  resendEmailVerification,
+  verifyEmailWithToken,
+} from "../services/email-verification.service.js";
 import {
   getVerificationByToken,
   respondToVerification,
@@ -90,6 +102,10 @@ import {
   revokeReceipt,
   resolveDispute,
 } from "../services/dashboard.service.js";
+
+const verifyEmailBodySchema = z.object({
+  token: z.string().min(20).max(200),
+});
 
 export const apiRouter = Router();
 
@@ -270,6 +286,36 @@ apiRouter.delete(
   }),
 );
 
+apiRouter.get(
+  "/auth/email-verification-status",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const status = await getEmailVerificationStatus(req.user!.id);
+    res.json({ success: true, data: status });
+  }),
+);
+
+apiRouter.post(
+  "/auth/resend-email-verification",
+  authenticate,
+  emailVerificationRateLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await resendEmailVerification(req.user!.id, clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.post(
+  "/auth/verify-email",
+  emailVerificationRateLimiter,
+  validateBody(verifyEmailBodySchema),
+  asyncHandler(async (req, res) => {
+    const body = validatedBody<{ token: string }>(req);
+    const result = await verifyEmailWithToken(body.token, clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
 // Profile
 apiRouter.get(
   "/profile",
@@ -374,17 +420,19 @@ apiRouter.post(
   asyncHandler(async (req, res) => {
     const receiptId = param(req.params.id);
     if (req.file) {
-      const evidence = await addEvidence(
+      if (!req.file.buffer) {
+        res.status(400).json({ success: false, message: "Upload failed." });
+        return;
+      }
+      const evidence = await addFileEvidence(
         req.user!.id,
         receiptId,
         {
-          type: evidenceTypeFromMime(req.file.mimetype),
-          url: `/uploads/${req.file.filename}`,
-          originalFilename: req.file.originalname,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          description: typeof req.body.description === "string" ? req.body.description : undefined,
+          buffer: req.file.buffer,
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
         },
+        typeof req.body.description === "string" ? req.body.description : undefined,
         clientIp(req),
       );
       res.status(201).json({ success: true, data: evidence });
@@ -392,13 +440,27 @@ apiRouter.post(
     }
 
     const parsed = evidenceLinkSchema.parse(req.body);
-    const evidence = await addEvidence(
+    const evidence = await addLinkEvidence(
       req.user!.id,
       receiptId,
-      { type: "LINK", url: parsed.url, description: parsed.description },
+      { url: parsed.url, description: parsed.description },
       clientIp(req),
     );
     res.status(201).json({ success: true, data: evidence });
+  }),
+);
+
+apiRouter.get(
+  "/receipts/:id/evidence/:evidenceId/download",
+  authenticate,
+  authorize("WORKER", "ADMIN"),
+  asyncHandler(async (req, res) => {
+    await downloadEvidence(
+      { id: req.user!.id, role: req.user!.role },
+      param(req.params.id),
+      param(req.params.evidenceId),
+      res,
+    );
   }),
 );
 
@@ -418,6 +480,27 @@ apiRouter.post(
   authorize("WORKER"),
   asyncHandler(async (req, res) => {
     const result = await submitReceipt(req.user!.id, param(req.params.id), clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.post(
+  "/receipts/:id/resend-verification",
+  authenticate,
+  authorize("WORKER"),
+  emailVerificationRateLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await resendCustomerVerification(req.user!.id, param(req.params.id), clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.get(
+  "/receipts/:id/verification-delivery",
+  authenticate,
+  authorize("WORKER"),
+  asyncHandler(async (req, res) => {
+    const result = await getVerificationDeliveryStatus(req.user!.id, param(req.params.id));
     res.json({ success: true, data: result });
   }),
 );
@@ -580,6 +663,3 @@ apiRouter.post(
     res.json({ success: true, data: result });
   }),
 );
-
-// Static uploads in development
-apiRouter.use("/uploads", (_req, res, next) => next());

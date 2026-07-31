@@ -4,6 +4,7 @@ import { AppError } from "../lib/errors.js";
 import { slugify } from "../lib/crypto.js";
 import { prisma } from "../lib/prisma.js";
 import { createAuditLog } from "./audit.service.js";
+import { createEmailVerificationForUser } from "./email-verification.service.js";
 import type { RegisterInput } from "@workproof/shared";
 
 const SALT_ROUNDS = 12;
@@ -54,6 +55,14 @@ export async function registerUser(input: RegisterInput, ipAddress?: string) {
         });
       }
 
+      await createEmailVerificationForUser({
+        userId: created.id,
+        email: created.email,
+        fullName: created.fullName,
+        ip: ipAddress,
+        tx,
+      });
+
       return created;
     });
   } catch (error) {
@@ -101,5 +110,9 @@ export async function getUserById(id: string) {
   });
   if (!user) throw AppError.notFound("User not found.");
   const { passwordHash: _, ...safe } = user;
-  return safe;
+  return {
+    ...safe,
+    emailVerified: Boolean(user.emailVerifiedAt),
+    emailVerifiedAt: user.emailVerifiedAt,
+  };
 }

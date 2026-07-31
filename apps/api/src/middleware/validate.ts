@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import multer from "multer";
 import { ZodError, type ZodType } from "zod";
 import { AppError } from "../lib/errors.js";
 import { env } from "../config/env.js";
@@ -76,6 +77,7 @@ export function errorHandler(
     res.status(error.statusCode).json({
       success: false,
       message: error.message,
+      ...(error.code ? { code: error.code } : {}),
       ...(error.errors ? { errors: error.errors } : {}),
     });
     return;
@@ -92,6 +94,17 @@ export function errorHandler(
       success: false,
       message: "Validation failed.",
       errors: fieldErrors,
+    });
+    return;
+  }
+
+  if (error instanceof multer.MulterError) {
+    res.status(400).json({
+      success: false,
+      message:
+        error.code === "LIMIT_FILE_SIZE"
+          ? `File exceeds maximum size of ${env.MAX_UPLOAD_SIZE_MB}MB.`
+          : "Upload rejected.",
     });
     return;
   }

@@ -24,6 +24,14 @@ export const verificationRateLimiter = rateLimit({
   message: { success: false, message: "Too many verification attempts. Try again later." },
 });
 
+export const emailVerificationRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many email verification requests. Try again later." },
+});
+
 export const apiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,

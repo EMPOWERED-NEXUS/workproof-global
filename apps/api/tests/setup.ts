@@ -4,8 +4,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 process.env.NODE_ENV = "test";
-process.env.JWT_SECRET = "test-jwt-secret-minimum-16-chars";
+process.env.ACCESS_TOKEN_SECRET = "test-access-token-secret-32chars!!";
+process.env.ACCESS_TOKEN_EXPIRES_IN = "15m";
+process.env.REFRESH_TOKEN_EXPIRES_DAYS = "30";
 process.env.FRONTEND_URL = "http://localhost:5173";
+process.env.ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173";
+process.env.COOKIE_SECURE = "false";
+process.env.ENABLE_API_DOCS = "false";
 process.env.DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
   "postgresql://workproof:workproof_dev_password@localhost:5434/workproof_test?schema=public";
@@ -24,6 +29,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   const { prisma } = await import("../src/lib/prisma.js");
   await prisma.auditLog.deleteMany();
+  await prisma.refreshToken.deleteMany();
   await prisma.confirmation.deleteMany();
   await prisma.dispute.deleteMany();
   await prisma.verificationRequest.deleteMany();

@@ -42,6 +42,26 @@
 | `GET /auth/sessions` | List active sessions |
 | `DELETE /auth/sessions/:id` | Revoke own session |
 
+## Password reset (Wave 0D)
+
+- `POST /auth/forgot-password` always returns a neutral message (no account enumeration)
+- Rate limited by IP + normalised email
+- Tokens stored as SHA-256 hashes only; atomic claim; one-time; expiry enforced
+- Delivered via encrypted email outbox (`PASSWORD_RESET`)
+- Successful reset revokes all refresh sessions
+- Raw reset tokens never returned unless `ALLOW_DEV_PASSWORD_RESET_TOKEN` (local/test)
+
+## Platform admin
+
+- Public registration cannot select `ADMIN`
+- Initial admin via explicit CLI (`docs/admin-bootstrap.md`) with `--confirm`
+
+## Logging (Wave 0D)
+
+- Structured JSON logs with `X-Request-Id`
+- Redacts passwords, tokens, cookies, Authorization, secrets
+- Public error responses include stable `code` + `requestId`
+
 ## Email verification (Wave 0C)
 
 - `User.emailVerifiedAt` required before `POST /receipts/:id/submit` (`EMAIL_VERIFICATION_REQUIRED`)

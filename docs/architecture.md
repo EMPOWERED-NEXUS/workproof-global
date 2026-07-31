@@ -56,6 +56,15 @@ Core entities: `User` (incl. `emailVerifiedAt`), `RefreshToken`, `EmailVerificat
 - Jobs claimed with `FOR UPDATE SKIP LOCKED`; exponential backoff; stuck `PROCESSING` recovery
 - Sensitive payload cleared after successful send
 
+### Staging readiness (Wave 0D)
+
+- Password reset tokens + branded reset email
+- Structured request logging / request IDs
+- Readiness checks config presence (no external provider pings)
+- `Dockerfile.api` / `Dockerfile.web` + Nginx SPA config
+- Single-phase `scripts/api-release.sh` (`prisma migrate deploy` then start)
+- Admin bootstrap CLI (never auto-run on deploy)
+
 Receipt lifecycle (Wave 0B):
 
 ```

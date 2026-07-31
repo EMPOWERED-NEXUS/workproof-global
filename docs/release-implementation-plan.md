@@ -65,16 +65,24 @@
 
 **Exit criteria for full Wave 0:** 0A + 0B + 0C met locally.
 
+### Wave 0D — COMPLETE (local staging readiness; not committed)
+
+1. Password reset API + web UX + outbox email
+2. Admin bootstrap CLI (no public ADMIN registration)
+3. Structured logging + request IDs + hardened readiness
+4. API/Web Docker images + Nginx SPA config + release script
+5. Staging smoke script + deployment/rollback docs
+6. CI: clean generate/migrate/typecheck/test/build + Docker builds + basic secret scan
+
 ### Wave 1 — Credible public web pilot — Week 2–3
 
-1. Password reset + forgot UI (AUTH-P1-001) — **not** in Wave 0C.
-2. Staging deploy runbook: private Supabase evidence bucket, transactional email secrets, HTTPS `WEB_APP_URL`, migrate deploy, backups.
-3. Admin UI mutations with confirm dialogs.
-4. Web consumes `@workproof/shared`.
-5. Public proof QR; basic PDF export.
-6. Legal acceptance capture.
-7. npm audit triage (DEP-SEC-001).
-8. Production monitoring for mail failures / storage errors.
+1. Execute staging deploy using Wave 0D runbooks
+2. Admin UI mutations with confirm dialogs
+3. Web consumes `@workproof/shared`
+4. Public proof QR; basic PDF export
+5. Legal acceptance capture
+6. npm audit triage for production deps (DEP-SEC-001)
+7. Production monitoring for mail failures / storage errors
 
 **Exit criteria:** External pilot workers complete full receipt lifecycle without manual DB/token hacks; admin can revoke/resolve; staging monitored.
 

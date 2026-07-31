@@ -19,6 +19,8 @@ Interactive docs: mounted only when `ENABLE_API_DOCS=true` (see `/api-docs`).
 | GET | `/auth/email-verification-status` | Authenticated verification status |
 | POST | `/auth/resend-email-verification` | Resend account verification email |
 | POST | `/auth/verify-email` | Consume one-time email verification token |
+| POST | `/auth/forgot-password` | Neutral acknowledgement; queues reset email if account exists |
+| POST | `/auth/reset-password` | One-time token + new password; revokes all sessions |
 
 ## Worker profile
 

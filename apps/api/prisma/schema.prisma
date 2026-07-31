@@ -67,8 +67,32 @@ model User {
   organisation  Organisation?
   receipts      WorkReceipt[]  @relation("WorkerReceipts")
   auditLogs     AuditLog[]
+  refreshTokens RefreshToken[]
 
   @@map("users")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  tokenHash         String    @unique @map("token_hash")
+  familyId          String    @map("family_id") @db.Uuid
+  expiresAt         DateTime  @map("expires_at")
+  revokedAt         DateTime? @map("revoked_at")
+  replacedByTokenId String?   @map("replaced_by_token_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  lastUsedAt        DateTime? @map("last_used_at")
+  deviceName        String?   @map("device_name")
+  userAgent         String?   @map("user_agent")
+  ipAddress         String?   @map("ip_address")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@index([familyId])
+  @@map("refresh_tokens")
 }
 
 model WorkerProfile {

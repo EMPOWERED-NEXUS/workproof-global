@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import {
   registerSchema,
   loginSchema,
@@ -33,13 +34,29 @@ import {
 import {
   authenticate,
   authorize,
-  clearAuthCookie,
-  setAuthCookie,
-  signToken,
+  clearSessionCookies,
+  getClientPlatform,
+  setSessionCookies,
+  signAccessToken,
+  type AuthUser,
 } from "../middleware/auth.js";
-import { loginRateLimiter, verificationRateLimiter } from "../middleware/rateLimit.js";
+import { env } from "../config/env.js";
+import {
+  loginRateLimiter,
+  refreshRateLimiter,
+  verificationRateLimiter,
+} from "../middleware/rateLimit.js";
 import { upload, evidenceTypeFromMime } from "../middleware/upload.js";
 import { registerUser, loginUser, getUserById } from "../services/auth.service.js";
+import {
+  createSession,
+  listUserSessions,
+  revokeAllUserSessions,
+  revokeOwnedSession,
+  revokeRefreshToken,
+  rotateRefreshToken,
+  type IssuedSession,
+} from "../services/session.service.js";
 import {
   getOwnProfile,
   updateOwnProfile,
@@ -71,7 +88,12 @@ import {
   revokeReceipt,
   resolveDispute,
 } from "../services/dashboard.service.js";
+
 export const apiRouter = Router();
+
+const refreshBodySchema = z.object({
+  refreshToken: z.string().min(20).optional(),
+});
 
 function param(value: string | string[] | undefined): string {
   if (Array.isArray(value)) return value[0] ?? "";
@@ -82,15 +104,72 @@ function clientIp(req: { ip?: string; socket?: { remoteAddress?: string } }): st
   return req.ip ?? req.socket?.remoteAddress;
 }
 
+function sessionMeta(req: {
+  ip?: string;
+  socket?: { remoteAddress?: string };
+  get: (name: string) => string | undefined;
+}) {
+  return {
+    ipAddress: clientIp(req),
+    userAgent: req.get("user-agent"),
+  };
+}
+
+function deliverSession(
+  req: Parameters<typeof getClientPlatform>[0],
+  res: {
+    status: (code: number) => { json: (body: unknown) => void };
+    json: (body: unknown) => void;
+  },
+  user: AuthUser,
+  session: IssuedSession,
+  statusCode = 200,
+): void {
+  const platform = getClientPlatform(req);
+  setSessionCookies(res as never, session);
+
+  const payload =
+    platform === "mobile"
+      ? {
+          user,
+          accessToken: session.accessToken,
+          refreshToken: session.refreshToken,
+          expiresIn: env.ACCESS_TOKEN_EXPIRES_IN,
+        }
+      : { user };
+
+  if (statusCode === 201) {
+    res.status(201).json({ success: true, data: payload });
+    return;
+  }
+  res.json({ success: true, data: payload });
+}
+
+function readRefreshToken(req: {
+  cookies?: Record<string, string>;
+  body?: unknown;
+}): string | undefined {
+  const fromCookie = req.cookies?.[env.REFRESH_COOKIE_NAME];
+  const parsed = refreshBodySchema.safeParse(req.body ?? {});
+  const fromBody = parsed.success ? parsed.data.refreshToken : undefined;
+  return fromBody || fromCookie;
+}
+
 // Auth
 apiRouter.post(
   "/auth/register",
   validateBody(registerSchema),
   asyncHandler(async (req, res) => {
     const user = await registerUser(validatedBody<RegisterInput>(req), clientIp(req));
-    const token = signToken(user);
-    setAuthCookie(res, token);
-    res.status(201).json({ success: true, data: { user, token } });
+    const authUser: AuthUser = {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      status: user.status,
+    };
+    const session = await createSession(authUser, sessionMeta(req), signAccessToken);
+    deliverSession(req, res, authUser, session, 201);
   }),
 );
 
@@ -101,17 +180,64 @@ apiRouter.post(
   asyncHandler(async (req, res) => {
     const body = validatedBody<LoginInput>(req);
     const user = await loginUser(body.email, body.password);
-    const token = signToken(user);
-    setAuthCookie(res, token);
-    res.json({ success: true, data: { user, token } });
+    const authUser: AuthUser = {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      status: user.status,
+    };
+    const session = await createSession(authUser, sessionMeta(req), signAccessToken);
+    deliverSession(req, res, authUser, session);
+  }),
+);
+
+apiRouter.post(
+  "/auth/refresh",
+  refreshRateLimiter,
+  asyncHandler(async (req, res) => {
+    const presented = readRefreshToken(req);
+    if (!presented) {
+      res.status(401).json({ success: false, message: "Refresh token required." });
+      return;
+    }
+    const session = await rotateRefreshToken(presented, sessionMeta(req), signAccessToken);
+    const platform = getClientPlatform(req);
+    setSessionCookies(res, session);
+    if (platform === "mobile") {
+      res.json({
+        success: true,
+        data: {
+          accessToken: session.accessToken,
+          refreshToken: session.refreshToken,
+          expiresIn: env.ACCESS_TOKEN_EXPIRES_IN,
+        },
+      });
+      return;
+    }
+    res.json({ success: true, data: { message: "Session refreshed." } });
   }),
 );
 
 apiRouter.post(
   "/auth/logout",
-  asyncHandler(async (_req, res) => {
-    clearAuthCookie(res);
+  asyncHandler(async (req, res) => {
+    const presented = readRefreshToken(req);
+    if (presented) {
+      await revokeRefreshToken(presented, req.user?.id, sessionMeta(req));
+    }
+    clearSessionCookies(res);
     res.json({ success: true, data: { message: "Logged out." } });
+  }),
+);
+
+apiRouter.post(
+  "/auth/logout-all",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const count = await revokeAllUserSessions(req.user!.id, req.user!.id, sessionMeta(req));
+    clearSessionCookies(res);
+    res.json({ success: true, data: { message: "All sessions revoked.", revokedCount: count } });
   }),
 );
 
@@ -121,6 +247,24 @@ apiRouter.get(
   asyncHandler(async (req, res) => {
     const user = await getUserById(req.user!.id);
     res.json({ success: true, data: user });
+  }),
+);
+
+apiRouter.get(
+  "/auth/sessions",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const sessions = await listUserSessions(req.user!.id);
+    res.json({ success: true, data: sessions });
+  }),
+);
+
+apiRouter.delete(
+  "/auth/sessions/:id",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    await revokeOwnedSession(req.user!.id, param(req.params.id), sessionMeta(req));
+    res.json({ success: true, data: { message: "Session revoked." } });
   }),
 );
 

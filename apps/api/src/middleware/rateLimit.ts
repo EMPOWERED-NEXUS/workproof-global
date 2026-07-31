@@ -8,6 +8,14 @@ export const loginRateLimiter = rateLimit({
   message: { success: false, message: "Too many login attempts. Try again later." },
 });
 
+export const refreshRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many refresh attempts. Try again later." },
+});
+
 export const verificationRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,

@@ -62,24 +62,47 @@ enum ReceiptEventActorType {
   SYSTEM
 }
 
-model User {
-  id           String     @id @default(uuid()) @db.Uuid
-  email        String     @unique
-  passwordHash String     @map("password_hash")
-  fullName     String     @map("full_name")
-  role         UserRole   @default(WORKER)
-  status       UserStatus @default(ACTIVE)
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+enum StorageProvider {
+  LOCAL
+  SUPABASE
+}
 
-  workerProfile   WorkerProfile?
-  organisation    Organisation?
-  receipts        WorkReceipt[]  @relation("WorkerReceipts")
-  revokedReceipts WorkReceipt[]  @relation("ReceiptRevokedBy")
-  auditLogs       AuditLog[]
-  refreshTokens   RefreshToken[]
-  receiptEvents   ReceiptEvent[]
-  resolvedDisputes Dispute[]     @relation("DisputeResolvedBy")
+enum EmailDeliveryStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum EmailJobType {
+  EMAIL_VERIFICATION
+  CUSTOMER_VERIFICATION
+  CUSTOMER_VERIFICATION_RESEND
+  DELIVERY_FAILURE_NOTICE
+}
+
+model User {
+  id              String     @id @default(uuid()) @db.Uuid
+  email           String     @unique
+  passwordHash    String     @map("password_hash")
+  fullName        String     @map("full_name")
+  role            UserRole   @default(WORKER)
+  status          UserStatus @default(ACTIVE)
+  emailVerifiedAt DateTime?  @map("email_verified_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  workerProfile            WorkerProfile?
+  organisation             Organisation?
+  receipts                 WorkReceipt[]            @relation("WorkerReceipts")
+  revokedReceipts          WorkReceipt[]            @relation("ReceiptRevokedBy")
+  auditLogs                AuditLog[]
+  refreshTokens            RefreshToken[]
+  receiptEvents            ReceiptEvent[]
+  resolvedDisputes         Dispute[]                @relation("DisputeResolvedBy")
+  uploadedEvidence         Evidence[]               @relation("EvidenceUploadedBy")
+  emailVerificationTokens  EmailVerificationToken[]
 
   @@map("users")
 }
@@ -184,21 +207,85 @@ model WorkReceipt {
   @@map("work_receipts")
 }
 
+/// Evidence file identity is storageKey (or externalUrl for LINK).
+/// Legacy `url` is retained only for migration safety and will be removed in a later wave.
 model Evidence {
-  id               String       @id @default(uuid()) @db.Uuid
-  receiptId        String       @map("receipt_id") @db.Uuid
+  id               String           @id @default(uuid()) @db.Uuid
+  receiptId        String           @map("receipt_id") @db.Uuid
   type             EvidenceType
-  url              String
-  originalFilename String?      @map("original_filename")
-  mimeType         String?      @map("mime_type")
+  /// @deprecated Prefer storageKey / externalUrl. Do not write file storage URLs here.
+  url              String?
+  storageProvider  StorageProvider? @map("storage_provider")
+  storageBucket    String?          @map("storage_bucket")
+  storageKey       String?          @map("storage_key")
+  externalUrl      String?          @map("external_url")
+  originalFilename String?          @map("original_filename")
+  safeFilename     String?          @map("safe_filename")
+  mimeType         String?          @map("mime_type")
   size             Int?
+  checksumSha256   String?          @map("checksum_sha256")
   description      String?
-  createdAt        DateTime     @default(now()) @map("created_at")
+  uploadedById     String?          @map("uploaded_by_id") @db.Uuid
+  uploadedAt       DateTime?        @map("uploaded_at")
+  deletedAt        DateTime?        @map("deleted_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
 
-  receipt WorkReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  receipt    WorkReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  uploadedBy User?       @relation("EvidenceUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([receiptId])
+  @@index([storageKey])
+  @@index([uploadedById])
+  @@index([deletedAt])
   @@map("evidence")
+}
+
+model EmailVerificationToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  tokenHash     String    @unique @map("token_hash")
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  invalidatedAt DateTime? @map("invalidated_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  requestedIp   String?   @map("requested_ip")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("email_verification_tokens")
+}
+
+model EmailOutbox {
+  id                          String              @id @default(uuid()) @db.Uuid
+  type                        EmailJobType
+  recipientEmail              String              @map("recipient_email")
+  recipientName               String?             @map("recipient_name")
+  encryptedPayload            String?             @map("encrypted_payload")
+  status                      EmailDeliveryStatus @default(PENDING)
+  attemptCount                Int                 @default(0) @map("attempt_count")
+  maxAttempts                 Int                 @default(8) @map("max_attempts")
+  nextAttemptAt               DateTime            @default(now()) @map("next_attempt_at")
+  claimedAt                   DateTime?           @map("claimed_at")
+  sentAt                      DateTime?           @map("sent_at")
+  failedAt                    DateTime?           @map("failed_at")
+  providerMessageId           String?             @map("provider_message_id")
+  lastErrorCode               String?             @map("last_error_code")
+  lastErrorMessageSanitised   String?             @map("last_error_message_sanitised")
+  relatedUserId               String?             @map("related_user_id") @db.Uuid
+  relatedReceiptId            String?             @map("related_receipt_id") @db.Uuid
+  relatedVerificationRequestId String?            @map("related_verification_request_id") @db.Uuid
+  createdAt                   DateTime            @default(now()) @map("created_at")
+  updatedAt                   DateTime            @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt])
+  @@index([relatedReceiptId])
+  @@index([relatedUserId])
+  @@index([type, status])
+  @@map("email_outbox")
 }
 
 model VerificationRequest {

@@ -9,17 +9,7 @@ import {
 } from "../src/lib/integrity.js";
 import { assertTransition } from "../src/lib/lifecycle.js";
 import { AppError } from "../src/lib/errors.js";
-
-async function registerWorker(email: string) {
-  const agent = request.agent(app);
-  await agent.post("/api/v1/auth/register").send({
-    email,
-    password: "SecurePass1",
-    fullName: "Lifecycle Worker",
-    role: "WORKER",
-  });
-  return agent;
-}
+import { registerWorker } from "./helpers.js";
 
 async function createAndSubmit(
   agent: ReturnType<typeof request.agent>,

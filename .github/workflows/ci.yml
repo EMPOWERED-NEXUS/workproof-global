@@ -11,9 +11,15 @@ env:
   ACCESS_TOKEN_EXPIRES_IN: 15m
   REFRESH_TOKEN_EXPIRES_DAYS: "30"
   FRONTEND_URL: http://localhost:5173
+  WEB_APP_URL: http://localhost:5173
   ALLOWED_ORIGINS: http://localhost:5173
   COOKIE_SECURE: "false"
   ENABLE_API_DOCS: "false"
+  STORAGE_PROVIDER: local
+  LOCAL_STORAGE_DIR: uploads-ci
+  EMAIL_PROVIDER: console
+  EMAIL_PAYLOAD_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  ALLOW_DEV_VERIFICATION_TOKEN: "true"
   DATABASE_URL: postgresql://workproof:workproof_test@localhost:5432/workproof_test?schema=public
   TEST_DATABASE_URL: postgresql://workproof:workproof_test@localhost:5432/workproof_test?schema=public
 

@@ -1,6 +1,7 @@
 import request from "supertest";
 import { describe, it, expect } from "vitest";
 import { app } from "../src/app.js";
+import { markEmailVerified } from "./helpers.js";
 
 describe("WorkProof Global API", () => {
   it("GET /api/v1/health returns running status", async () => {
@@ -69,6 +70,7 @@ describe("WorkProof Global API", () => {
       fullName: "Owner Worker",
       role: "WORKER",
     });
+    await markEmailVerified("owner@test.com");
     await agent2.post("/api/v1/auth/register").send({
       email: "other@test.com",
       password: "SecurePass1",
@@ -103,6 +105,7 @@ describe("WorkProof Global API", () => {
       fullName: "Confirm Worker",
       role: "WORKER",
     });
+    await markEmailVerified("confirm@test.com");
 
     const createRes = await agent.post("/api/v1/receipts").send({
       customerName: "Confirm Customer",
@@ -146,6 +149,7 @@ describe("WorkProof Global API", () => {
       fullName: "Locked Worker",
       role: "WORKER",
     });
+    await markEmailVerified("locked@test.com");
 
     const createRes = await agent.post("/api/v1/receipts").send({
       customerName: "Lock Customer",
@@ -175,6 +179,7 @@ describe("WorkProof Global API", () => {
       fullName: "Public Worker",
       role: "WORKER",
     });
+    await markEmailVerified("public@test.com");
 
     const createRes = await agent.post("/api/v1/receipts").send({
       customerName: "Private Customer",
@@ -220,6 +225,7 @@ describe("WorkProof Global API", () => {
       fullName: "List Query Worker",
       role: "WORKER",
     });
+    await markEmailVerified("listquery@test.com");
 
     const createRes = await agent.post("/api/v1/receipts").send({
       customerName: "Filter Customer",

@@ -20,6 +20,7 @@ env:
   EMAIL_PROVIDER: console
   EMAIL_PAYLOAD_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   ALLOW_DEV_VERIFICATION_TOKEN: "true"
+  ALLOW_DEV_PASSWORD_RESET_TOKEN: "true"
   DATABASE_URL: postgresql://workproof:workproof_test@localhost:5432/workproof_test?schema=public
   TEST_DATABASE_URL: postgresql://workproof:workproof_test@localhost:5432/workproof_test?schema=public
 
@@ -55,6 +56,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Ensure Prisma engines are not tracked
+        run: |
+          if git ls-files | grep -E 'apps/api/generated/prisma/.*(query_engine|libquery_engine|schema\.prisma)$' ; then
+            echo "Generated Prisma artifacts must not be tracked" >&2
+            exit 1
+          fi
+
       - name: Generate Prisma Client
         run: npm run db:generate
 
@@ -88,3 +96,29 @@ jobs:
 
       - name: Build web
         run: npm run build --workspace=@workproof/web
+
+      - name: Validate Nginx SPA config
+        run: |
+          test -f deploy/nginx/web.conf
+          grep -q 'try_files \$uri \$uri/ /index.html' deploy/nginx/web.conf
+          grep -q 'immutable' deploy/nginx/web.conf
+
+      - name: Secret pattern scan (basic)
+        run: |
+          set +e
+          hits=$(grep -RInE --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=generated --exclude=package-lock.json \
+            'SUPABASE_SERVICE_ROLE_KEY[[:space:]]*=[[:space:]]*["'"'"']?[A-Za-z0-9._-]{20,}|EMAIL_API_KEY[[:space:]]*=[[:space:]]*["'"'"']?re_[A-Za-z0-9]+|BEGIN (RSA |OPENSSH )?PRIVATE KEY' \
+            . 2>/dev/null)
+          set -e
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "Potential secret material found" >&2
+            exit 1
+          fi
+          echo "Basic secret scan passed"
+
+      - name: Build API Docker image
+        run: docker build -f Dockerfile.api -t workproof-api:ci .
+
+      - name: Build web Docker image
+        run: docker build -f Dockerfile.web --build-arg VITE_API_URL=/api/v1 -t workproof-web:ci .

@@ -17,7 +17,11 @@ apps/api/generated/
 
 # Runtime uploads and local caches
 uploads/
+uploads-test/
+uploads-ci/
 apps/api/uploads/
+apps/api/uploads-test/
+apps/api/uploads-ci/
 apps/mobile/.expo/
 **/.expo/
 *.tsbuildinfo

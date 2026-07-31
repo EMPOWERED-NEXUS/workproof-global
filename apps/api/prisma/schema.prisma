@@ -80,6 +80,7 @@ enum EmailJobType {
   CUSTOMER_VERIFICATION
   CUSTOMER_VERIFICATION_RESEND
   DELIVERY_FAILURE_NOTICE
+  PASSWORD_RESET
 }
 
 model User {
@@ -103,8 +104,28 @@ model User {
   resolvedDisputes         Dispute[]                @relation("DisputeResolvedBy")
   uploadedEvidence         Evidence[]               @relation("EvidenceUploadedBy")
   emailVerificationTokens  EmailVerificationToken[]
+  passwordResetTokens      PasswordResetToken[]
 
   @@map("users")
+}
+
+model PasswordResetToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  tokenHash     String    @unique @map("token_hash")
+  expiresAt     DateTime  @map("expires_at")
+  claimedAt     DateTime? @map("claimed_at")
+  usedAt        DateTime? @map("used_at")
+  invalidatedAt DateTime? @map("invalidated_at")
+  requestedIp   String?   @map("requested_ip")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model RefreshToken {

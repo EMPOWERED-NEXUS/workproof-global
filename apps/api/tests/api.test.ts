@@ -17,6 +17,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "New Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -30,12 +32,16 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Dup Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const res = await request(app).post("/api/v1/auth/register").send({
       email: "dup@test.com",
       password: "SecurePass1",
       fullName: "Dup Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     expect(res.status).toBe(409);
   });
@@ -46,6 +52,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Login Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const res = await request(app).post("/api/v1/auth/login").send({
       email: "login@test.com",
@@ -69,6 +77,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Owner Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     await markEmailVerified("owner@test.com");
     await agent2.post("/api/v1/auth/register").send({
@@ -76,6 +86,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Other Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
 
     const createRes = await agent1.post("/api/v1/receipts").send({
@@ -104,6 +116,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Confirm Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     await markEmailVerified("confirm@test.com");
 
@@ -148,6 +162,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Locked Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     await markEmailVerified("locked@test.com");
 
@@ -178,6 +194,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Public Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     await markEmailVerified("public@test.com");
 
@@ -212,6 +230,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Not Admin",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const res = await agent.get("/api/v1/admin/users");
     expect(res.status).toBe(403);
@@ -224,6 +244,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "List Query Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     await markEmailVerified("listquery@test.com");
 

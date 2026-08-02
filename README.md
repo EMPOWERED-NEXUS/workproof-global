@@ -12,11 +12,14 @@ npm workspaces monorepo:
 
 | Package | Description |
 |---------|-------------|
-| `apps/api` | Express 5 + TypeScript + Prisma + PostgreSQL |
-| `apps/web` | React + Vite 8 + React Router |
+| `apps/api` | Express 5 + TypeScript + Prisma + PostgreSQL — **pilot launch target** |
+| `apps/web` | React + Vite 8 + React Router — **pilot launch target** |
+| `apps/mobile` | Expo internal preview shell only (not a public download / store release) |
 | `packages/shared` | Shared Zod schemas and types |
 
-See [docs/architecture.md](docs/architecture.md) for details.
+**Launch posture:** Public pilot focuses on **web + API**. Organisation programme access is **invitation-based** (not public self-registration). Mobile remains an internal preview shell — do not claim a public mobile download.
+
+See [docs/architecture.md](docs/architecture.md) and [docs/ux-finalization-audit.md](docs/ux-finalization-audit.md) for details.
 
 ## Prerequisites
 
@@ -111,7 +114,7 @@ Archiving uses `archivedAt` and does **not** replace verification status. Public
 
 ## Tests
 
-Tests use an isolated database `workproof_test` on the same PostgreSQL instance.
+API tests use an isolated database `workproof_test` on the same PostgreSQL instance.
 
 ```bash
 # Create test database once
@@ -119,6 +122,15 @@ docker exec workproof-postgres psql -U workproof -d workproof -c "CREATE DATABAS
 
 npm run test
 ```
+
+Web Playwright E2E (builds + previews locally; mocks API — no production credentials):
+
+```bash
+npm run test:e2e
+# or: npm run test:e2e --workspace=@workproof/web
+```
+
+First time on a machine, install the browser: `npx playwright install chromium` from `apps/web`.
 
 ## Build
 
@@ -129,9 +141,9 @@ npm run build
 
 ## Project scope
 
-**In scope (MVP):** Verified Work Receipts, customer verification links, public proof pages, worker profiles, organisation dashboard preview, admin oversight, audit logging.
+**In scope (web/API pilot):** Verified Work Receipts, customer verification links, public proof pages, worker profiles, invitation-based organisation programme overview, admin oversight, audit logging, password reset, email verification, evidence upload/download.
 
-**Out of scope:** Lending, credit scoring, blockchain, escrow, payment processing, native mobile apps, AI risk scoring.
+**Out of scope:** Lending, credit scoring, blockchain, escrow, payment processing, public mobile app store release, AI risk scoring.
 
 ## Wave 0C — Evidence & email
 

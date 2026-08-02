@@ -17,7 +17,12 @@ import ProfilePage from './pages/ProfilePage';
 import WorkerPublicPage from './pages/WorkerPublicPage';
 import OrganisationPage from './pages/OrganisationPage';
 import AdminPage from './pages/AdminPage';
-import PrivacyPage, { TermsPage } from './pages/LegalPages';
+import PrivacyPage, {
+  TermsPage,
+  EvidencePolicyPage,
+  DisputePolicyPage,
+  SupportPage,
+} from './pages/LegalPages';
 import NotFoundPage from './pages/NotFoundPage';
 
 export default function App() {
@@ -36,6 +41,9 @@ export default function App() {
           <Route path="/workers/:profileSlug" element={<WorkerPublicPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/terms" element={<TermsPage />} />
+          <Route path="/evidence-policy" element={<EvidencePolicyPage />} />
+          <Route path="/dispute-policy" element={<DisputePolicyPage />} />
+          <Route path="/support" element={<SupportPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<DashboardPage />} />
           </Route>

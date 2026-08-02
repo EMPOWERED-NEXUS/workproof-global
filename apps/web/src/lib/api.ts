@@ -87,9 +87,27 @@ export const api = {
   getVerification: (token: string) => request<VerificationView>(`/verification/${token}`),
   respondVerification: (token: string, data: object) => request<{ status: string; verificationCode?: string }>(`/verification/${token}/respond`, { method: 'POST', body: JSON.stringify(data) }),
   getPublicProof: (code: string) => request<PublicProof>(`/public/receipts/${code}`),
-  adminUsers: () => request<Paginated<AdminUser>>('/admin/users'),
-  adminReceipts: () => request<Paginated<Receipt>>('/admin/receipts'),
-  adminDisputes: () => request<Paginated<Dispute>>('/admin/disputes'),
+  adminUsers: (query = '') => request<Paginated<AdminUser>>(`/admin/users${query}`),
+  adminReceipts: (query = '') => request<Paginated<AdminReceipt>>(`/admin/receipts${query}`),
+  adminDisputes: (query = '') => request<Paginated<Dispute>>(`/admin/disputes${query}`),
+  adminSetUserStatus: (id: string, status: 'ACTIVE' | 'SUSPENDED') =>
+    request<AdminUser>(`/admin/users/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+  adminRevokeReceipt: (id: string, reason: string) =>
+    request<Receipt>(`/admin/receipts/${id}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  adminResolveDispute: (
+    id: string,
+    data: { resolution: string; receiptStatus: 'VERIFIED' | 'REVOKED' | 'CORRECTION_REQUESTED' },
+  ) =>
+    request<Dispute>(`/admin/disputes/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };
 
 export type UserRole = 'WORKER' | 'ORGANISATION' | 'ADMIN';
@@ -230,7 +248,9 @@ export interface WorkerDashboard {
 export interface OrganisationDashboard {
   organisation: Organisation;
   note: string;
+  accessNote?: string;
   workerCount: number;
+  assignedWorkers?: Array<{ fullName: string; profileSlug: string; skills: string[] }>;
   verifiedReceiptCount: number;
 }
 
@@ -275,12 +295,16 @@ export interface AdminUser {
   status: string;
 }
 
+export interface AdminReceipt extends Receipt {
+  worker?: { fullName: string; email: string };
+}
+
 export interface Dispute {
   id: string;
   reason: string;
   description: string;
   status: string;
-  receipt?: { serviceTitle: string };
+  receipt?: { serviceTitle: string; worker?: { fullName: string } };
 }
 
 export function formatXaf(amount: number | null | undefined): string {

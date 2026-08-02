@@ -100,6 +100,8 @@ describe("Wave 0C evidence and email", () => {
       password: "SecurePass1",
       fullName: "Admin Ev",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     await prisma.user.update({
       where: { email: "admin-ev@test.com" },
@@ -222,6 +224,8 @@ describe("Wave 0C evidence and email", () => {
       password: "SecurePass1",
       fullName: "Verify Reg",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const jobs = await prisma.emailOutbox.findMany({
       where: { type: "EMAIL_VERIFICATION", recipientEmail: "verify-reg@test.com" },
@@ -243,6 +247,8 @@ describe("Wave 0C evidence and email", () => {
       password: "SecurePass1",
       fullName: "Once",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const job = await prisma.emailOutbox.findFirstOrThrow({
       where: { recipientEmail: "verify-once@test.com" },
@@ -347,6 +353,8 @@ describe("Wave 0C evidence and email", () => {
       password: "SecurePass1",
       fullName: "Dispatch",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
 
     const pendingJobs = await prisma.emailOutbox.findMany({

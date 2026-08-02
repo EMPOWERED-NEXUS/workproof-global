@@ -34,3 +34,11 @@ Staging must pass smoke tests before production cutover.
 
 - **Email provider down:** jobs remain in outbox, retry with backoff, eventually `FAILED` + worker notice for customer verification
 - **Storage provider down:** uploads fail closed; existing DB metadata retained; downloads return errors without leaking paths
+
+## UX / legal / org notes
+
+- Public registration creates **WORKER** accounts only, with Terms and Privacy acceptance recorded.
+- Organisation programme access is invitation-based; bootstrap admins via `docs/admin-bootstrap.md`, then provision orgs administratively.
+- Legal pages are pilot copy — complete external legal review before unrestricted commercial launch.
+- Mobile is not part of the public production download surface; keep store / APK claims off marketing until mobile parity ships.
+- Recommend enabling malware scanning on evidence uploads as an ops control (not yet built into the API).

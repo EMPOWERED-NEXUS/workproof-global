@@ -108,7 +108,12 @@ export async function listReceipts(
         ? { archivedAt: null }
         : {}),
     ...(query.search
-      ? { serviceTitle: { contains: query.search, mode: "insensitive" as const } }
+      ? {
+          OR: [
+            { serviceTitle: { contains: query.search, mode: "insensitive" as const } },
+            { customerName: { contains: query.search, mode: "insensitive" as const } },
+          ],
+        }
       : {}),
     ...(query.skill ? { skillsDemonstrated: { has: query.skill } } : {}),
     ...(query.fromDate || query.toDate

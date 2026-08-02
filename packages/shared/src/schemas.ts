@@ -11,7 +11,38 @@ export const registerSchema = z.object({
   email: z.string().email().transform((v) => v.trim().toLowerCase()),
   password: passwordSchema,
   fullName: z.string().min(2).max(120).trim(),
-  role: z.enum(["WORKER", "ORGANISATION"]).default("WORKER"),
+  /** Public self-registration is worker-only. Organisation accounts are invitation-based. */
+  role: z.literal("WORKER").default("WORKER"),
+  acceptTerms: z
+    .boolean()
+    .refine((v) => v === true, { message: "You must accept the Terms of Use." }),
+  acceptPrivacy: z
+    .boolean()
+    .refine((v) => v === true, { message: "You must accept the Privacy Policy." }),
+});
+
+export const adminUserListQuerySchema = z.object({
+  search: z.string().max(200).optional(),
+  status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
+  role: z.enum(["WORKER", "ORGANISATION", "ADMIN"]).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const adminReceiptListQuerySchema = z.object({
+  search: z.string().max(200).optional(),
+  status: z
+    .enum([
+      "DRAFT",
+      "PENDING_VERIFICATION",
+      "VERIFIED",
+      "CORRECTION_REQUESTED",
+      "DISPUTED",
+      "REVOKED",
+    ])
+    .optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export const loginSchema = z.object({
@@ -112,3 +143,5 @@ export type ReceiptListQueryInput = z.infer<typeof receiptListQuerySchema>;
 export type VerificationRespondInput = z.infer<typeof verificationRespondSchema>;
 export type AdminResolveDisputeInput = z.infer<typeof adminResolveDisputeSchema>;
 export type AdminRevokeInput = z.infer<typeof adminRevokeSchema>;
+export type AdminUserListQueryInput = z.infer<typeof adminUserListQuerySchema>;
+export type AdminReceiptListQueryInput = z.infer<typeof adminReceiptListQuerySchema>;

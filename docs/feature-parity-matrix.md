@@ -1,6 +1,6 @@
 # WorkProof Global — Feature Parity Matrix
 
-**Branch:** `release-v1-web-mobile`  
+**Branch:** `release-v1-ux-finalization`  
 **Date:** 2026-07-31  
 
 Legend: **Done** · **Partial** · **API only** · **Missing** · **N/A**
@@ -9,57 +9,57 @@ Legend: **Done** · **Partial** · **API only** · **Missing** · **N/A**
 
 ## 1. Web feature matrix
 
-| Feature | Status | Evidence / notes | Finding |
-|---------|--------|------------------|---------|
-| Landing | Done | `LandingPage.tsx` | WEB-P2-001 CTA confusion |
-| Registration | Done | `RegisterPage.tsx` + API | AUTH-P1-002 no email verify |
-| Login | Done | Cookie session via `credentials: 'include'` | |
-| Forgot password | Missing | No routes/API | AUTH-P1-001 |
-| Password reset | Missing | | AUTH-P1-001 |
-| Email verification | Missing | | AUTH-P1-002 |
-| Worker dashboard | Done | `DashboardPage.tsx` + `/dashboard/worker` | |
-| Receipt list | Partial | Lists items; no status/search filters in UI | WEB-P1-002 |
-| Receipt filtering | API only | Query schema supports filters; UI does not | WEB-P1-002 |
-| Receipt creation | Done | `NewReceiptPage.tsx` | |
-| Receipt editing | Missing UI | API `PATCH` exists; detail page does not edit fields | WEB-P1-002 |
-| Draft deletion | API only | `api.deleteReceipt` unused in UI | WEB-P1-002 |
-| File evidence | API only | Multer route exists; web has no file upload | WEB-P1-001 |
-| Link evidence | Partial | `window.prompt` UX only | WEB-P1-001 |
-| Evidence removal | API only | No UI | WEB-P1-001 |
-| Receipt submission | Done | Shows shareable verify link | EMAIL-P0-001 |
-| Verification resend | Partial | Re-submit path only; no dedicated resend | LIFE-P2-003 |
-| Receipt history | Missing | Audit logs not exposed to worker UI | LIFE-P2-002 |
-| Public proof | Done | `ProofPage.tsx` | PROOF-P0-001 state rules |
-| QR code | Missing | | WEB-P1-005 |
-| PDF export | Missing | | WEB-P1-005 |
-| Profile editing | Done | `ProfilePage.tsx` | |
-| Organisation management | Partial | Read-only dashboard; no members/edit | DATA-P1-001 |
-| Worker assignment | Missing | Explicitly noted in API org dashboard | DATA-P1-001 |
-| Admin actions | Partial | Lists only; no suspend/revoke/resolve UI | WEB-P1-003 |
-| Disputes (customer) | Done | Via verify respond | |
-| Disputes (admin resolve) | API only | | WEB-P1-003 |
-| Account settings | Missing | Beyond profile | AUTH-P1-003 |
-| Account deletion | Missing | | AUTH-P1-003 |
-| Privacy / Terms | Partial | Stub copy | DATA-P1-004 |
-| Error states | Partial | Alerts on many pages | |
-| Empty states | Partial | Receipts empty state present | |
-| Loading states | Partial | Text loading lines | |
-| Offline / PWA | Missing | | WEB-P2-003 |
-| Responsive navigation | Partial | Flex wrap; no dedicated mobile nav | WEB-P2-004 |
+| Feature | Status | Evidence / notes |
+|---------|--------|------------------|
+| Landing | Done | Worker CTAs; how verification works (no public verify CTA) |
+| Registration | Done | Worker-only + Terms/Privacy acceptance |
+| Login | Done | Cookie session via `credentials: 'include'` |
+| Forgot password | Done | `/forgot-password` + API outbox email |
+| Password reset | Done | `/reset-password` + API |
+| Email verification | Done | Required before receipt **submission**; drafts allowed |
+| Worker dashboard | Done | Stats + onboarding checklist |
+| Receipt list | Done | List with empty/error/loading states |
+| Receipt filtering | Done | Search, status, sort toolbar |
+| Receipt creation | Done | `NewReceiptPage.tsx` |
+| Receipt editing | Done | Draft / correction fields on detail page |
+| Draft deletion | Done | Confirm dialog on detail page |
+| File evidence | Done | Upload + authorized download UI |
+| Link evidence | Done | Form (not prompt-only) |
+| Evidence removal | Done | Confirm dialog |
+| Receipt submission | Done | Customer verification email path |
+| Verification resend | Done | Dedicated resend + delivery status |
+| Receipt history | Done | Events timeline on detail page |
+| Archive / unarchive | Done | `archivedAt` (status unchanged) |
+| Public proof | Done | `proofValidity` banners |
+| QR code | Done | Valid proofs only |
+| PDF export | Missing | Post-pilot |
+| Profile editing | Done | `ProfilePage.tsx` |
+| Organisation management | Partial | Invitation-based overview; no members/edit |
+| Worker assignment | Missing | Programme model later |
+| Admin actions | Done | Suspend/activate, revoke, resolve + confirm dialogs |
+| Disputes (customer) | Done | Via verify respond |
+| Disputes (admin resolve) | Done | Admin UI + API |
+| Account settings | Partial | Profile + email verify; no session UI in web |
+| Account deletion | Partial | Support email request (no self-serve) |
+| Privacy / Terms | Done | Pilot legal pages + operator/support contact |
+| Error / empty / loading | Done | Shared UI patterns on key pages |
+| Offline / PWA | Missing | Out of pilot scope |
+| Responsive navigation | Done | Mobile menu with `aria-expanded` |
+| Playwright E2E | Done | `apps/web/e2e` (mocked auth) |
 
 ### Web accessibility snapshot
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| Keyboard support | Partial | Native controls; pills focusable |
-| Focus states | Partial | `:focus-visible` gold outline in CSS |
-| Form labels | Partial | Labels wrap inputs on forms |
-| Contrast | Partial | Navy/cream/emerald generally OK; gold on cream needs check |
-| Screen-reader labels | Partial | Main nav `aria-label`; limited elsewhere |
-| Semantic headings | Partial | Mostly h1/h2 present |
-| Status announcements | Partial | `role="alert"` on Alert |
-| Validation messages | Partial | Server errors shown; client validation minimal |
-| Touch targets | Partial | Buttons padded; some ghost buttons small |
+| Keyboard support | Partial | Native controls; dialogs Escape/focus restore |
+| Focus states | Partial | `:focus-visible` in CSS |
+| Form labels | Done | Labels wrap inputs; consent checkboxes labelled |
+| Contrast | Partial | Navy/cream/emerald; gold accents need spot-check |
+| Screen-reader labels | Partial | Main nav, skip link, live regions, dialogs |
+| Semantic headings | Done | Page h1 + section h2 pattern |
+| Status announcements | Done | Alerts + live regions on admin/detail |
+| Validation messages | Done | Client consent + server errors |
+| Touch targets | Partial | Nav/actions sized; continue spot-check |
 
 ---
 
@@ -67,24 +67,20 @@ Legend: **Done** · **Partial** · **API only** · **Missing** · **N/A**
 
 | Capability | Web | API | Mobile | Gap severity |
 |------------|-----|-----|--------|--------------|
-| Auth register/login | Done | Done (cookie) | Placeholder | P0 |
-| Bearer + SecureStore | N/A | Missing Bearer | Missing | P0 |
-| Session restore | Cookie `/auth/me` | Cookie only | Missing | P0 |
-| Worker dashboard | Done | Done | Placeholder | P0 |
-| Receipts list/create | Done | Done | Placeholder | P0 |
-| Evidence camera/gallery/docs | Partial (web file missing) | File+link | Missing | P0/P1 |
-| Profile | Done | Done | Placeholder | P0 |
-| Verification links | Done | Done | Missing deep link | P1 |
-| Public proof | Done | Done | Missing | P1 |
-| QR scanning | Missing | N/A | Missing | P1 |
-| Offline drafts / retry queue | Missing | N/A | Missing | P1 |
-| Network detection | N/A | N/A | Health check on welcome only | P2 |
-| API env handling | `VITE_API_URL` | — | `EXPO_PUBLIC_API_URL` (good pattern) | — |
-| Android package | N/A | N/A | `com.empowerednexus.workproof` | — |
-| Permissions (camera/files) | N/A | N/A | Not declared for capture | P1 |
-| Icon / splash | Favicon SVG | — | Present (navy splash) + leftover Expo assets | P1 |
-| EAS / channels | N/A | N/A | Missing `eas.json` | P1 |
-| Production API URL | Env | Env | Example only uses LAN IP placeholder | P1 |
+| Auth register/login | Done | Done (cookie + Bearer mobile) | Shell / preview | P0 for public mobile |
+| Bearer + SecureStore | N/A | Done for `X-Client-Platform: mobile` | Partial / shell | P0 |
+| Session restore | Cookie `/auth/me` | Done | Shell | P0 |
+| Worker dashboard | Done | Done | Shell | P0 |
+| Receipts list/create | Done | Done | Shell | P0 |
+| Evidence camera/gallery/docs | Done (web file/link) | File+link | Shell | P0/P1 |
+| Profile | Done | Done | Shell | P0 |
+| Verification links | Done | Done | Deep link later | P1 |
+| Public proof | Done | Done | Later | P1 |
+| QR | Done (web display) | N/A | Scan later | P1 |
+| Offline drafts / retry | Missing | N/A | Missing | P1 |
+| Production API URL | Env | Env | Preview env only | P1 |
+
+**Posture:** Mobile is an **internal preview shell**. Joint public web+mobile store launch is **not** the current target.
 
 ---
 
@@ -92,19 +88,19 @@ Legend: **Done** · **Partial** · **API only** · **Missing** · **N/A**
 
 | Transition / rule | API | Web UI | Mobile | Tests |
 |-------------------|-----|--------|--------|-------|
-| Create DRAFT | Yes | Yes | No | Yes |
-| Edit DRAFT / CORRECTION_REQUESTED | Yes | No | No | Lock test only |
-| Add/remove evidence | Yes | Link add only | No | No |
+| Create DRAFT | Yes | Yes | No | Yes (API) |
+| Edit DRAFT / CORRECTION_REQUESTED | Yes | Yes | No | Yes |
+| Add/remove evidence | Yes | Yes | No | Yes (API) |
 | Submit → PENDING | Yes | Yes | No | Yes |
 | Customer confirm → VERIFIED | Yes | Yes | N/A | Yes |
-| Correction requested | Yes | Via verify | N/A | No |
-| Resubmit after correction | Partial (broken confirm) | Same | No | No — LIFE-P0-001 |
-| Dispute | Yes | Via verify | N/A | No |
-| Admin revoke | Yes | No | No | No |
-| Admin resolve dispute | Yes | No | No | No |
-| Archive | Yes (permissive) | No | No | No |
-| Public proof privacy | Yes | Yes | No | Yes (contact hidden) |
-| Integrity hash / lock | Yes | Display limited | No | Indirect |
+| Correction requested | Yes | Via verify | N/A | Yes |
+| Resubmit after correction | Yes | Yes | No | Yes |
+| Dispute | Yes | Via verify | N/A | Yes |
+| Admin revoke | Yes | Yes | No | API + E2E mock |
+| Admin resolve dispute | Yes | Yes | No | API + UI |
+| Archive | Yes | Yes | No | API |
+| Public proof privacy | Yes | Yes | No | Yes |
+| Integrity hash / lock | Yes | Displayed | No | Indirect |
 
 ---
 
@@ -112,26 +108,26 @@ Legend: **Done** · **Partial** · **API only** · **Missing** · **N/A**
 
 | Feature | API | Web | Notes |
 |---------|-----|-----|-------|
-| Org registration | Yes | Yes | Creates org shell |
-| Org dashboard | Leaky aggregates | Displays note + lists | SEC-P0-002 |
-| Members / invites | No | No | DATA-P1-001 |
-| Worker assignment | No | No | |
+| Org public self-registration | No | No | Invitation / admin provision only |
+| Org dashboard | Scoped | Invitation messaging | No platform-wide leak |
+| Members / invites | No | No | Deferred |
+| Worker assignment | No | No | Deferred |
 | Admin user list | Yes | Yes | |
-| Admin suspend/activate | Yes | No | WEB-P1-003 |
+| Admin suspend/activate | Yes | Yes + confirm | |
 | Admin receipt list | Yes | Yes | |
-| Admin revoke | Yes | No | |
-| Admin disputes | Yes | List only | |
+| Admin revoke | Yes | Yes + confirm | |
+| Admin disputes | Yes | Resolve UI | |
 
 ---
 
-## 5. Cross-platform synchronization assessment
+## 5. Wave 0 status (accurate)
 
-| Concern | Assessment |
-|---------|------------|
-| Shared contracts | `@workproof/shared` used by API + mobile; **web duplicates types** |
-| Auth mechanism | Web cookies ≠ mobile needs Bearer — **desynced** |
-| Feature depth | Web MVP > API complete-ish ≫ Mobile shell |
-| Env strategy | Separate env examples; mobile correctly avoids hardcoded LAN IP in source |
-| Release trains | No CI to keep platforms in sync |
+| Wave | Status |
+|------|--------|
+| 0A Auth / sessions / CI hygiene | Done |
+| 0B Lifecycle / proofValidity / archive | Done |
+| 0C Evidence storage + email verify + outbox | Done |
+| 0D Password reset, admin bootstrap, Docker, staging smoke docs | Done |
+| UX finalization (this wave) | Done locally — E2E + legal/org UX polish |
 
-**Verdict:** Not synchronized for a joint web+mobile production launch. Web+API can approach a limited pilot after P0 fixes; mobile requires a full worker MVP implementation pass.
+**Verdict:** Web + API are the pilot launch track. Mobile parity is later. Staging on AWS and legal review remain before unrestricted public launch.

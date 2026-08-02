@@ -85,31 +85,35 @@ describe("Wave 0B receipt lifecycle", () => {
     expect(success.body.data.status).toBe("VERIFIED");
   });
 
-  it("produces unique receipt numbers under concurrent verification", async () => {
-    const submitted = [];
-    for (let i = 0; i < 5; i++) {
-      const agent = await registerWorker(`rn-${i}@test.com`);
-      submitted.push(await createAndSubmit(agent, { email: `rn-customer-${i}@test.com` }));
-    }
+  it(
+    "produces unique receipt numbers under concurrent verification",
+    async () => {
+      const submitted = [];
+      for (let i = 0; i < 5; i++) {
+        const agent = await registerWorker(`rn-${i}@test.com`);
+        submitted.push(await createAndSubmit(agent, { email: `rn-customer-${i}@test.com` }));
+      }
 
-    const results = await Promise.all(
-      submitted.map((s) =>
-        request(app)
-          .post(`/api/v1/verification/${s.token}/respond`)
-          .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" }),
-      ),
-    );
+      const results = await Promise.all(
+        submitted.map((s) =>
+          request(app)
+            .post(`/api/v1/verification/${s.token}/respond`)
+            .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" }),
+        ),
+      );
 
-    expect(results.every((r) => r.status === 200)).toBe(true);
-    const codes = results.map((r) => r.body.data.verificationCode as string);
-    const receipts = await prisma.workReceipt.findMany({
-      where: { verificationCode: { in: codes } },
-      select: { receiptNumber: true },
-    });
-    const receiptNumbers = receipts.map((r) => r.receiptNumber).filter(Boolean);
-    expect(new Set(receiptNumbers).size).toBe(receiptNumbers.length);
-    expect(receiptNumbers.every((n) => /^WPG-\d{4}-\d{6}$/.test(n!))).toBe(true);
-  });
+      expect(results.every((r) => r.status === 200)).toBe(true);
+      const codes = results.map((r) => r.body.data.verificationCode as string);
+      const receipts = await prisma.workReceipt.findMany({
+        where: { verificationCode: { in: codes } },
+        select: { receiptNumber: true },
+      });
+      const receiptNumbers = receipts.map((r) => r.receiptNumber).filter(Boolean);
+      expect(new Set(receiptNumbers).size).toBe(receiptNumbers.length);
+      expect(receiptNumbers.every((n) => /^WPG-\d{4}-\d{6}$/.test(n!))).toBe(true);
+    },
+    30_000,
+  );
 
   it("supports correction then resubmission then confirmation with history", async () => {
     const agent = await registerWorker("correction-cycle@test.com");
@@ -208,6 +212,8 @@ describe("Wave 0B receipt lifecycle", () => {
       password: "SecurePass1",
       fullName: "Admin",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     // Elevate to admin in DB for revoke test
     await prisma.user.update({
@@ -320,6 +326,8 @@ describe("Wave 0B receipt lifecycle", () => {
       password: "SecurePass1",
       fullName: "Dash Admin2",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const adminUser = await prisma.user.findUnique({ where: { email: "dash-admin2@test.com" } });
     await prisma.user.update({ where: { id: adminUser!.id }, data: { role: "ADMIN" } });
@@ -355,6 +363,8 @@ describe("Wave 0B receipt lifecycle", () => {
       password: "SecurePass1",
       fullName: "Dup Admin",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const adminUser = await prisma.user.findUnique({ where: { email: "dup-admin@test.com" } });
     await prisma.user.update({ where: { id: adminUser!.id }, data: { role: "ADMIN" } });

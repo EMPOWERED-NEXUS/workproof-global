@@ -23,6 +23,7 @@
     "typecheck:mobile": "npm run typecheck --workspace=@workproof/mobile",
     "test": "npm run db:generate && npm run build:shared && npm run test --workspace=@workproof/api",
     "test:api": "npm run db:generate && npm run build:shared && npm run test --workspace=@workproof/api",
+    "test:e2e": "npm run test:e2e --workspace=@workproof/web",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:migrate": "npm run db:migrate --workspace=@workproof/api",

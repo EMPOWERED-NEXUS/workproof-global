@@ -14,10 +14,14 @@ import {
   adminUserStatusSchema,
   adminResolveDisputeSchema,
   adminRevokeSchema,
+  adminUserListQuerySchema,
+  adminReceiptListQuerySchema,
 } from "@workproof/shared";
 import type {
   AdminResolveDisputeInput,
   AdminRevokeInput,
+  AdminReceiptListQueryInput,
+  AdminUserListQueryInput,
   ForgotPasswordInput,
   LoginInput,
   ProfileUpdateInput,
@@ -628,8 +632,14 @@ apiRouter.get(
   "/admin/users",
   authenticate,
   authorize("ADMIN"),
-  asyncHandler(async (_req, res) => {
-    const data = await listAdminUsers();
+  validateQuery(adminUserListQuerySchema),
+  asyncHandler(async (req, res) => {
+    const query = validatedQuery<AdminUserListQueryInput>(req);
+    const data = await listAdminUsers(query.page, query.limit, {
+      search: query.search,
+      status: query.status,
+      role: query.role,
+    });
     res.json({ success: true, data });
   }),
 );
@@ -638,8 +648,13 @@ apiRouter.get(
   "/admin/receipts",
   authenticate,
   authorize("ADMIN"),
-  asyncHandler(async (_req, res) => {
-    const data = await listAdminReceipts();
+  validateQuery(adminReceiptListQuerySchema),
+  asyncHandler(async (req, res) => {
+    const query = validatedQuery<AdminReceiptListQueryInput>(req);
+    const data = await listAdminReceipts(query.page, query.limit, {
+      search: query.search,
+      status: query.status,
+    });
     res.json({ success: true, data });
   }),
 );

@@ -86,23 +86,36 @@ export async function getOrganisationDashboard(ownerId: string) {
   // Privacy containment: until worker assignments exist, never return platform-wide data.
   return {
     organisation: org,
-    note: "No workers have been assigned to this organisation yet.",
+    note: "No workers are assigned to this programme yet.",
+    accessNote:
+      "Organisation programme access is invitation-based. Worker assignment and membership management will be enabled in a post-launch wave.",
     workerCount: 0,
-    sampleWorkers: [] as Array<{ fullName: string; profileSlug: string; skills: string[] }>,
-    recentPlatformReceipts: [] as Array<{
-      serviceTitle: string;
-      status: string;
-      workerName: string;
-      workDate: Date;
-    }>,
+    assignedWorkers: [] as Array<{ fullName: string; profileSlug: string; skills: string[] }>,
     verifiedReceiptCount: 0,
   };
 }
 
-export async function listAdminUsers(page = 1, limit = 20) {
+export async function listAdminUsers(
+  page = 1,
+  limit = 20,
+  filters: { search?: string; status?: "ACTIVE" | "SUSPENDED"; role?: "WORKER" | "ORGANISATION" | "ADMIN" } = {},
+) {
+  const where = {
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.role ? { role: filters.role } : {}),
+    ...(filters.search
+      ? {
+          OR: [
+            { email: { contains: filters.search, mode: "insensitive" as const } },
+            { fullName: { contains: filters.search, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
   const [total, users] = await Promise.all([
-    prisma.user.count(),
+    prisma.user.count({ where }),
     prisma.user.findMany({
+      where,
       skip: (page - 1) * limit,
       take: limit,
       orderBy: { createdAt: "desc" },
@@ -119,10 +132,37 @@ export async function listAdminUsers(page = 1, limit = 20) {
   return { items: users, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 } };
 }
 
-export async function listAdminReceipts(page = 1, limit = 20) {
+export async function listAdminReceipts(
+  page = 1,
+  limit = 20,
+  filters: {
+    search?: string;
+    status?:
+      | "DRAFT"
+      | "PENDING_VERIFICATION"
+      | "VERIFIED"
+      | "CORRECTION_REQUESTED"
+      | "DISPUTED"
+      | "REVOKED";
+  } = {},
+) {
+  const where = {
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.search
+      ? {
+          OR: [
+            { serviceTitle: { contains: filters.search, mode: "insensitive" as const } },
+            { customerName: { contains: filters.search, mode: "insensitive" as const } },
+            { receiptNumber: { contains: filters.search, mode: "insensitive" as const } },
+            { worker: { fullName: { contains: filters.search, mode: "insensitive" as const } } },
+          ],
+        }
+      : {}),
+  };
   const [total, items] = await Promise.all([
-    prisma.workReceipt.count(),
+    prisma.workReceipt.count({ where }),
     prisma.workReceipt.findMany({
+      where,
       skip: (page - 1) * limit,
       take: limit,
       orderBy: { createdAt: "desc" },

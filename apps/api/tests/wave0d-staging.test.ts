@@ -85,6 +85,8 @@ describe("Wave 0D staging readiness", () => {
         password: "SecurePass1",
         fullName: "Reset Flow",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
       await prisma.user.update({
         where: { email: "reset-flow@test.com" },

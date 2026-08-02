@@ -20,40 +20,31 @@ export async function registerUser(input: RegisterInput, ipAddress?: string) {
   let user;
   try {
     user = await prisma.$transaction(async (tx) => {
+      const acceptedAt = new Date();
       const created = await tx.user.create({
         data: {
           email: input.email,
           passwordHash,
           fullName: input.fullName,
-          role: input.role,
+          role: "WORKER",
+          termsAcceptedAt: acceptedAt,
+          privacyAcceptedAt: acceptedAt,
         },
       });
 
-      if (input.role === "WORKER") {
-        let baseSlug = slugify(input.fullName) || "worker";
-        let slug = baseSlug;
-        let counter = 1;
-        while (await tx.workerProfile.findUnique({ where: { profileSlug: slug } })) {
-          slug = `${baseSlug}-${counter++}`;
-        }
-        await tx.workerProfile.create({
-          data: {
-            userId: created.id,
-            profileSlug: slug,
-            headline: `${input.fullName} — informal worker`,
-          },
-        });
+      let baseSlug = slugify(input.fullName) || "worker";
+      let slug = baseSlug;
+      let counter = 1;
+      while (await tx.workerProfile.findUnique({ where: { profileSlug: slug } })) {
+        slug = `${baseSlug}-${counter++}`;
       }
-
-      if (input.role === "ORGANISATION") {
-        await tx.organisation.create({
-          data: {
-            ownerId: created.id,
-            name: `${input.fullName}'s Organisation`,
-            description: "Organisation profile on WorkProof Global.",
-          },
-        });
-      }
+      await tx.workerProfile.create({
+        data: {
+          userId: created.id,
+          profileSlug: slug,
+          headline: `${input.fullName} — informal worker`,
+        },
+      });
 
       await createEmailVerificationForUser({
         userId: created.id,

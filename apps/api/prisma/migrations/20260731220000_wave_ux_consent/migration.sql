@@ -1,0 +1,3 @@
+-- Legal consent timestamps captured at worker self-registration.
+ALTER TABLE "users" ADD COLUMN "terms_accepted_at" TIMESTAMP(3);
+ALTER TABLE "users" ADD COLUMN "privacy_accepted_at" TIMESTAMP(3);

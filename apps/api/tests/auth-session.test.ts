@@ -19,13 +19,35 @@ function cookieValue(setCookie: string[] | undefined, name: string): string | un
   return undefined;
 }
 
-async function registerBrowser(email: string, role: "WORKER" | "ORGANISATION" = "WORKER") {
+async function registerBrowser(email: string) {
   return request.agent(app).post("/api/v1/auth/register").send({
     email,
     password: "SecurePass1",
     fullName: "Test User",
-    role,
+    role: "WORKER",
+    acceptTerms: true,
+    acceptPrivacy: true,
   });
+}
+
+async function createOrganisationAccount(email: string, fullName: string) {
+  const passwordHash = await import("bcrypt").then((m) => m.hash("SecurePass1", 12));
+  const user = await prisma.user.create({
+    data: {
+      email,
+      passwordHash,
+      fullName,
+      role: "ORGANISATION",
+      emailVerifiedAt: new Date(),
+      organisation: {
+        create: {
+          name: `${fullName} Programme`,
+          description: "Invitation-based organisation account for tests.",
+        },
+      },
+    },
+  });
+  return user;
 }
 
 describe("Wave 0A authentication and sessions", () => {
@@ -53,6 +75,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "Mobile User",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     expect(res.status).toBe(201);
     expect(res.body.data.accessToken).toBeTruthy();
@@ -69,6 +93,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "Bearer User",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     const access = reg.body.data.accessToken as string;
     const me = await request(app)
@@ -99,6 +125,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "Suspend User",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     const userId = reg.body.data.user.id as string;
     const access = reg.body.data.accessToken as string;
@@ -151,6 +179,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "Rotate User",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     const refresh1 = reg.body.data.refreshToken as string;
     const refreshRes = await request(app)
@@ -172,6 +202,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "Replay User",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     const refresh1 = reg.body.data.refreshToken as string;
     const first = await request(app)
@@ -203,6 +235,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "Logout User",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     const refresh = reg.body.data.refreshToken as string;
     const logout = await request(app)
@@ -226,6 +260,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "All Sess",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     const access = a.body.data.accessToken as string;
     const refreshA = a.body.data.refreshToken as string;
@@ -261,6 +297,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "Owner",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     const b = await request(app)
       .post("/api/v1/auth/register")
@@ -270,6 +308,8 @@ describe("Wave 0A authentication and sessions", () => {
         password: "SecurePass1",
         fullName: "Other",
         role: "WORKER",
+        acceptTerms: true,
+        acceptPrivacy: true,
       });
     const ownerAccess = a.body.data.accessToken as string;
     const otherSessions = await request(app)
@@ -290,6 +330,8 @@ describe("Wave 0A authentication and sessions", () => {
       password: "SecurePass1",
       fullName: "CSRF User",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const res = await agent
       .post("/api/v1/receipts")
@@ -310,21 +352,59 @@ describe("Wave 0A authentication and sessions", () => {
       password: "SecurePass1",
       fullName: "Secret Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
+    await createOrganisationAccount("org-a@test.com", "Org A");
     const orgAgent = request.agent(app);
-    await orgAgent.post("/api/v1/auth/register").send({
+    await orgAgent.post("/api/v1/auth/login").send({
       email: "org-a@test.com",
       password: "SecurePass1",
-      fullName: "Org A",
-      role: "ORGANISATION",
     });
     const dash = await orgAgent.get("/api/v1/dashboard/organisation");
     expect(dash.status).toBe(200);
     expect(dash.body.data.workerCount).toBe(0);
-    expect(dash.body.data.sampleWorkers).toEqual([]);
-    expect(dash.body.data.recentPlatformReceipts).toEqual([]);
+    expect(dash.body.data.assignedWorkers).toEqual([]);
     expect(JSON.stringify(dash.body.data)).not.toContain("Secret Worker");
     expect(JSON.stringify(dash.body.data)).not.toContain("worker-leak@test.com");
+    expect(JSON.stringify(dash.body.data)).not.toMatch(/sample workers/i);
+  });
+
+  it("rejects public ORGANISATION self-registration", async () => {
+    const res = await request(app).post("/api/v1/auth/register").send({
+      email: "wanna-org@test.com",
+      password: "SecurePass1",
+      fullName: "Wanna Org",
+      role: "ORGANISATION",
+      acceptTerms: true,
+      acceptPrivacy: true,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("requires terms and privacy acceptance at registration", async () => {
+    const res = await request(app).post("/api/v1/auth/register").send({
+      email: "no-consent@test.com",
+      password: "SecurePass1",
+      fullName: "No Consent",
+      role: "WORKER",
+      acceptTerms: false,
+      acceptPrivacy: true,
+    });
+    expect(res.status).toBe(400);
+
+    const ok = await request(app).post("/api/v1/auth/register").send({
+      email: "with-consent@test.com",
+      password: "SecurePass1",
+      fullName: "With Consent",
+      role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
+    });
+    expect(ok.status).toBe(201);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: "with-consent@test.com" } });
+    expect(user.termsAcceptedAt).toBeTruthy();
+    expect(user.privacyAcceptedAt).toBeTruthy();
   });
 
   it("readiness returns healthy when database is available", async () => {

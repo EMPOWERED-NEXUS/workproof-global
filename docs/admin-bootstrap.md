@@ -1,6 +1,6 @@
 # Platform admin bootstrap
 
-Public registration **cannot** create `ADMIN` users (`registerSchema` allows only `WORKER` | `ORGANISATION`).
+Public registration **cannot** create `ADMIN` or `ORGANISATION` users (`registerSchema` allows only `WORKER`, with required Terms and Privacy acceptance). Organisation accounts are **invitation-based / administratively provisioned** — they must never be offered through the public register UI.
 
 ## Create or promote the first administrator
 

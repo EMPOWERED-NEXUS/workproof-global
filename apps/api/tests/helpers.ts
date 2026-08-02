@@ -12,6 +12,8 @@ export async function registerWorker(
     password: "SecurePass1",
     fullName: opts.fullName ?? "Test Worker",
     role: "WORKER",
+    acceptTerms: true,
+    acceptPrivacy: true,
   });
   if (res.status !== 201) {
     throw new Error(`register failed: ${res.status} ${JSON.stringify(res.body)}`);

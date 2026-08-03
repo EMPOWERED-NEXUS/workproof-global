@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
+const REQUEST_TIMEOUT_MS = 25_000;
 
 /** Auth endpoints that must never trigger a session refresh attempt. */
 const NO_REFRESH_PATHS = new Set([
@@ -29,16 +30,48 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** Transient connectivity failure — must not clear an authenticated session. */
+export class NetworkError extends Error {
+  constructor(message = 'Network unavailable. Check your connection and try again.') {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
 export const SESSION_EXPIRED_MESSAGE = 'Your session expired. Please sign in again.';
+export const SERVICE_UNAVAILABLE_MESSAGE =
+  'WorkProof is temporarily unavailable. Please retry in a moment.';
 
 type SessionExpiredHandler = () => void;
 
 let sessionExpiredHandler: SessionExpiredHandler | null = null;
-let refreshInFlight: Promise<boolean> | null = null;
+let refreshInFlight: Promise<'ok' | 'auth' | 'network'> | null = null;
 
-/** Register a callback invoked when cookie refresh fails (clears cached auth). */
+/** Register a callback invoked when cookie refresh fails with a confirmed auth error. */
 export function setSessionExpiredHandler(handler: SessionExpiredHandler | null): void {
   sessionExpiredHandler = handler;
+}
+
+export function isNetworkError(error: unknown): boolean {
+  return error instanceof NetworkError;
+}
+
+/**
+ * Canonical public web origin for shareable links (proof, profiles).
+ * Prefer VITE_PUBLIC_WEB_URL so Amplify preview hosts never leak into QR/copy payloads.
+ */
+export function getCanonicalWebOrigin(): string {
+  const configured = (import.meta.env.VITE_PUBLIC_WEB_URL as string | undefined)?.trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+  return '';
+}
+
+export function buildCanonicalProofUrl(publicCode: string): string {
+  const code = publicCode.replace(/^\/+|\/+$/g, '');
+  return `${getCanonicalWebOrigin()}/proof/${code}`;
 }
 
 function normalizePath(path: string): string {
@@ -47,19 +80,49 @@ function normalizePath(path: string): string {
 }
 
 function canAttemptRefresh(path: string): boolean {
-  return !NO_REFRESH_PATHS.has(normalizePath(path));
+  const normalized = normalizePath(path);
+  if (NO_REFRESH_PATHS.has(normalized)) return false;
+  // Public surfaces must never enter the cookie refresh flow.
+  if (normalized.startsWith('/public/')) return false;
+  if (normalized.startsWith('/verification/')) return false;
+  if (normalized.startsWith('/workers/')) return false;
+  return true;
 }
 
 function notifySessionExpired(): void {
   sessionExpiredHandler?.();
 }
 
-async function refreshAccessSession(): Promise<boolean> {
+function isIdempotentGet(method: string | undefined): boolean {
+  return (method ?? 'GET').toUpperCase() === 'GET';
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'AbortError') {
+      throw new NetworkError(SERVICE_UNAVAILABLE_MESSAGE);
+    }
+    throw new NetworkError();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function refreshAccessSession(): Promise<'ok' | 'auth' | 'network'> {
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
+      const res = await fetchWithTimeout(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -70,9 +133,11 @@ async function refreshAccessSession(): Promise<boolean> {
       } catch {
         body = null;
       }
-      return res.ok && body?.success === true;
-    } catch {
-      return false;
+      if (res.ok && body?.success === true) return 'ok';
+      return 'auth';
+    } catch (error) {
+      if (error instanceof NetworkError) return 'network';
+      return 'network';
     } finally {
       refreshInFlight = null;
     }
@@ -84,35 +149,58 @@ async function refreshAccessSession(): Promise<boolean> {
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  hasRetried = false,
+  state: { authRetried?: boolean; networkRetried?: boolean } = {},
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...options.headers,
-    },
-  });
+  const method = (options.method ?? 'GET').toUpperCase();
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${API_BASE}${path}`, {
+      ...options,
+      credentials: 'include',
+      headers: {
+        ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    if (
+      error instanceof NetworkError &&
+      isIdempotentGet(method) &&
+      !state.networkRetried
+    ) {
+      return request<T>(path, options, { ...state, networkRetried: true });
+    }
+    throw error instanceof NetworkError ? error : new NetworkError();
+  }
 
-  if (res.status === 401 && !hasRetried && canAttemptRefresh(path)) {
-    // Drain the error body so the connection can be reused cleanly.
+  if (res.status === 401 && !state.authRetried && canAttemptRefresh(path)) {
     try {
       await res.json();
     } catch {
       /* ignore */
     }
 
-    const refreshed = await refreshAccessSession();
-    if (refreshed) {
-      return request<T>(path, options, true);
+    const refreshResult = await refreshAccessSession();
+    if (refreshResult === 'ok') {
+      return request<T>(path, options, { ...state, authRetried: true });
     }
-
+    if (refreshResult === 'network') {
+      throw new NetworkError(SERVICE_UNAVAILABLE_MESSAGE);
+    }
     notifySessionExpired();
     throw new ApiRequestError(SESSION_EXPIRED_MESSAGE);
   }
 
-  const body = (await res.json()) as ApiSuccess<T> | (ApiError & { code?: string });
+  let body: ApiSuccess<T> | (ApiError & { code?: string });
+  try {
+    body = (await res.json()) as ApiSuccess<T> | (ApiError & { code?: string });
+  } catch {
+    if (res.status >= 500 || res.status === 0) {
+      throw new NetworkError(SERVICE_UNAVAILABLE_MESSAGE);
+    }
+    throw new ApiRequestError('Request failed');
+  }
+
   if (!res.ok || !body.success) {
     const err = body as ApiError & { code?: string };
     throw new ApiRequestError(err.message ?? 'Request failed', err.code);
@@ -126,7 +214,7 @@ export const __sessionRefreshTestUtils = {
     refreshInFlight = null;
     sessionExpiredHandler = null;
   },
-  getRefreshInFlight(): Promise<boolean> | null {
+  getRefreshInFlight(): Promise<'ok' | 'auth' | 'network'> | null {
     return refreshInFlight;
   },
 };
@@ -203,6 +291,7 @@ export const api = {
 export type UserRole = 'WORKER' | 'ORGANISATION' | 'ADMIN';
 export type ReceiptStatus = 'DRAFT' | 'PENDING_VERIFICATION' | 'VERIFIED' | 'CORRECTION_REQUESTED' | 'DISPUTED' | 'REVOKED' | 'ARCHIVED';
 export type ProofValidity = 'VALID' | 'INVALID_REVOKED' | 'UNDER_DISPUTE' | 'CORRECTION_REQUIRED' | 'UNAVAILABLE';
+export type DurationUnit = 'MINUTE' | 'HOUR' | 'DAY' | 'WEEK' | 'MONTH';
 
 export interface User {
   id: string;
@@ -288,6 +377,9 @@ export interface Receipt {
   customerPhone?: string | null;
   workDate: string;
   durationMinutes?: number | null;
+  durationValue?: number | null;
+  durationUnit?: DurationUnit | null;
+  durationLabel?: string | null;
   amount?: number | null;
   currency: string;
   skillsDemonstrated: string[];
@@ -354,6 +446,7 @@ export interface VerificationView {
   evidenceCount: number;
   status: ReceiptStatus;
   expiresAt: string;
+  durationLabel?: string | null;
 }
 
 export interface PublicProof {
@@ -363,6 +456,9 @@ export interface PublicProof {
   serviceTitle: string;
   description: string;
   workDate: string;
+  durationValue?: number | null;
+  durationUnit?: DurationUnit | null;
+  durationLabel?: string | null;
   skillsDemonstrated: string[];
   verifiedAt?: string | null;
   verificationStatus: ReceiptStatus;

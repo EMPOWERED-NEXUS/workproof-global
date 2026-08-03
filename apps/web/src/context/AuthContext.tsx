@@ -1,5 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { api, setSessionExpiredHandler, type UserProfile } from '../lib/api';
+import {
+  api,
+  isNetworkError,
+  setSessionExpiredHandler,
+  type UserProfile,
+} from '../lib/api';
 import { AuthContext } from './auth-context';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -10,8 +15,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const me = await api.me();
       setUser(me);
-    } catch {
-      setUser(null);
+    } catch (error) {
+      // Preserve an existing session across temporary network blips.
+      if (!isNetworkError(error)) {
+        setUser(null);
+      }
     } finally {
       setLoading(false);
     }

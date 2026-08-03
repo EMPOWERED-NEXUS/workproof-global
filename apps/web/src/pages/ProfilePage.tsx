@@ -5,6 +5,7 @@ import { EmailVerificationBanner } from '../components/EmailVerificationBanner';
 import { CopyButton, LiveRegion } from '../components/ui';
 import { useAuth } from '../hooks/use-auth';
 import { api, type EmailVerificationStatus, type WorkerProfile } from '../lib/api';
+import { buildCanonicalWorkerUrl } from '../lib/canonical-url';
 
 export default function ProfilePage() {
   const { user, refresh } = useAuth();
@@ -19,7 +20,7 @@ export default function ProfilePage() {
 
   const publicUrl = useMemo(() => {
     if (!profile) return '';
-    return `${window.location.origin}/workers/${profile.profileSlug}`;
+    return buildCanonicalWorkerUrl(profile.profileSlug);
   }, [profile]);
 
   useEffect(() => {

@@ -3,10 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Layout, PageHeader, StatusBadge, Alert } from '../components/Layout';
 import { EmailVerificationBanner } from '../components/EmailVerificationBanner';
 import { ConfirmDialog, LiveRegion } from '../components/ui';
+import { DurationFields } from '../components/DurationFields';
 import {
   ApiRequestError,
   api,
   formatXaf,
+  type DurationUnit,
   type Evidence,
   type Receipt,
   type ReceiptEvent,
@@ -63,7 +65,8 @@ export default function ReceiptDetailPage() {
     serviceTitle: '',
     description: '',
     workDate: '',
-    durationMinutes: '',
+    durationValue: '',
+    durationUnit: 'HOUR' as DurationUnit,
     amount: '',
     skillsDemonstrated: '',
     visibility: 'PRIVATE',
@@ -81,7 +84,13 @@ export default function ReceiptDetailPage() {
       serviceTitle: r.serviceTitle,
       description: r.description,
       workDate: r.workDate.slice(0, 10),
-      durationMinutes: r.durationMinutes != null ? String(r.durationMinutes) : '',
+      durationValue:
+        r.durationValue != null
+          ? String(r.durationValue)
+          : r.durationMinutes != null
+            ? String(r.durationMinutes)
+            : '',
+      durationUnit: r.durationUnit ?? (r.durationMinutes != null ? 'MINUTE' : 'HOUR'),
       amount: r.amount != null ? String(r.amount) : '',
       skillsDemonstrated: r.skillsDemonstrated.join(', '),
       visibility: r.visibility,
@@ -128,7 +137,12 @@ export default function ReceiptDetailPage() {
         serviceTitle: editForm.serviceTitle,
         description: editForm.description,
         workDate: editForm.workDate,
-        durationMinutes: editForm.durationMinutes ? Number(editForm.durationMinutes) : undefined,
+        ...(editForm.durationValue
+          ? {
+              durationValue: Number(editForm.durationValue),
+              durationUnit: editForm.durationUnit,
+            }
+          : { durationValue: null, durationUnit: null, durationMinutes: null }),
         amount: editForm.amount ? Number(editForm.amount) : undefined,
         skillsDemonstrated: editForm.skillsDemonstrated
           .split(',')
@@ -353,15 +367,6 @@ export default function ReceiptDetailPage() {
               />
             </label>
             <label>
-              Duration (minutes)
-              <input
-                type="number"
-                min={0}
-                value={editForm.durationMinutes}
-                onChange={(e) => setEditForm({ ...editForm, durationMinutes: e.target.value })}
-              />
-            </label>
-            <label>
               Amount
               <input
                 type="number"
@@ -371,6 +376,12 @@ export default function ReceiptDetailPage() {
               />
             </label>
           </div>
+          <DurationFields
+            value={editForm.durationValue}
+            unit={editForm.durationUnit}
+            onValueChange={(durationValue) => setEditForm({ ...editForm, durationValue })}
+            onUnitChange={(durationUnit) => setEditForm({ ...editForm, durationUnit })}
+          />
           <label>
             Skills demonstrated (comma-separated)
             <input
@@ -407,6 +418,10 @@ export default function ReceiptDetailPage() {
               <div>
                 <dt>Work date</dt>
                 <dd>{new Date(receipt.workDate).toLocaleDateString()}</dd>
+              </div>
+              <div>
+                <dt>Duration</dt>
+                <dd>{receipt.durationLabel || '—'}</dd>
               </div>
               <div>
                 <dt>Amount</dt>

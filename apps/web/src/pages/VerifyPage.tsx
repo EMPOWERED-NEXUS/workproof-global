@@ -58,6 +58,12 @@ export default function VerifyPage() {
                   <dt>Work date</dt>
                   <dd>{new Date(view.workDate).toLocaleDateString()}</dd>
                 </div>
+                {view.durationLabel && (
+                  <div>
+                    <dt>Duration</dt>
+                    <dd>{view.durationLabel}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>Skills</dt>
                   <dd>{view.skillsDemonstrated.join(', ') || '—'}</dd>

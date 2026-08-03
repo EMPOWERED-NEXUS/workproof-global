@@ -3,7 +3,15 @@ import { Link, useParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { Layout, StatusBadge, Alert } from '../components/Layout';
 import { CopyButton, ShareButton } from '../components/ui';
-import { api, formatXaf, type PublicProof, type ProofValidity } from '../lib/api';
+import {
+  api,
+  buildCanonicalProofUrl,
+  formatXaf,
+  isNetworkError,
+  type PublicProof,
+  type ProofValidity,
+} from '../lib/api';
+import { ErrorState } from '../components/ui';
 
 function validityBanner(validity: ProofValidity): {
   tone: 'error' | 'success' | 'info';
@@ -36,19 +44,37 @@ export default function ProofPage() {
   const { verificationCode } = useParams();
   const [proof, setProof] = useState<PublicProof | null>(null);
   const [error, setError] = useState('');
+  const [networkFailure, setNetworkFailure] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
 
   const proofUrl = useMemo(() => {
     if (!verificationCode) return '';
-    return `${window.location.origin}/proof/${verificationCode}`;
+    return buildCanonicalProofUrl(verificationCode);
   }, [verificationCode]);
 
-  useEffect(() => {
+  function loadProof() {
     if (!verificationCode) return;
+    setError('');
+    setNetworkFailure(false);
     api
       .getPublicProof(verificationCode)
-      .then(setProof)
-      .catch((e) => setError(e instanceof Error ? e.message : 'Proof not found'));
+      .then((data) => {
+        setProof(data);
+      })
+      .catch((e) => {
+        setProof(null);
+        if (isNetworkError(e)) {
+          setNetworkFailure(true);
+          setError(e.message);
+          return;
+        }
+        setError(e instanceof Error ? e.message : 'Proof not found');
+      });
+  }
+
+  useEffect(() => {
+    loadProof();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verificationCode]);
 
   useEffect(() => {
@@ -66,7 +92,8 @@ export default function ProofPage() {
       <div className={`proof-page ${banner?.valid ? 'wide' : ''}`}>
         <p className="eyebrow">WorkProof · Public proof</p>
         <h1>Portable proof of completed work</h1>
-        {error && <Alert tone="error" message={error} />}
+        {networkFailure && error && <ErrorState message={error} onRetry={loadProof} />}
+        {!networkFailure && error && <Alert tone="error" message={error} />}
         {proof && banner && <Alert tone={banner.tone} message={banner.message} />}
         {proof && (
           <article className="card proof-card">
@@ -106,6 +133,12 @@ export default function ProofPage() {
                     <dt>Work date</dt>
                     <dd>{new Date(proof.workDate).toLocaleDateString()}</dd>
                   </div>
+                  {proof.durationLabel && (
+                    <div>
+                      <dt>Duration</dt>
+                      <dd>{proof.durationLabel}</dd>
+                    </div>
+                  )}
                   {proof.verifiedAt && (
                     <div>
                       <dt>Customer confirmed</dt>

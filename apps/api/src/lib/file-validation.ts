@@ -144,20 +144,41 @@ export function validateUploadBuffer(input: {
 const PRIVATE_HOST_RE =
   /^(localhost|127\.0\.0\.1|0\.0\.0\.0|::1|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.|169\.254\.|\[::1\])/i;
 
+const MAX_EVIDENCE_URL_LENGTH = 2048;
+
 export function validateEvidenceLinkUrl(raw: string): string {
+  if (/[\u0000-\u001F\u007F]/.test(raw)) {
+    throw AppError.badRequest("URL contains invalid characters.");
+  }
+  if (raw.length > MAX_EVIDENCE_URL_LENGTH) {
+    throw AppError.badRequest("Evidence URL is too long.");
+  }
   let parsed: URL;
   try {
     parsed = new URL(raw.trim());
   } catch {
     throw AppError.badRequest("Invalid evidence URL.");
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw AppError.badRequest("Only http and https links are allowed.");
+  const protocol = parsed.protocol.toLowerCase();
+  if (
+    protocol === "javascript:" ||
+    protocol === "data:" ||
+    protocol === "file:" ||
+    protocol === "blob:"
+  ) {
+    throw AppError.badRequest("Unsupported URL protocol.");
+  }
+  if (protocol !== "https:") {
+    throw AppError.badRequest("Only HTTPS links are allowed for evidence.");
+  }
+  if (parsed.username || parsed.password) {
+    throw AppError.badRequest("URLs must not include credentials.");
   }
   if (PRIVATE_HOST_RE.test(parsed.hostname) || parsed.hostname.endsWith(".local")) {
     throw AppError.badRequest("Private-network and localhost links are not allowed.");
   }
   parsed.hash = "";
+  // Never fetch or scrape the URL — normalize and store only.
   return parsed.toString();
 }
 

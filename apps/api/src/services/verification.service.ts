@@ -3,11 +3,48 @@ import { hashToken } from "../lib/crypto.js";
 import { prisma } from "../lib/prisma.js";
 import { applyVerificationDecision } from "./receipt.service.js";
 import { createAuditLog } from "./audit.service.js";
+import { serializeEvidenceSafe } from "./evidence.service.js";
 import {
+  confirmationAssuranceLabel,
+  confirmationChannelNote,
   formatDuration,
   type DurationUnit,
   type VerificationRespondInput,
 } from "@workproof/shared";
+
+function tokenStateError(request: {
+  invalidatedAt: Date | null;
+  usedAt: Date | null;
+  expiresAt: Date;
+  receipt: { status: string; archivedAt: Date | null };
+}): never {
+  if (request.receipt.archivedAt) {
+    throw AppError.badRequest("This receipt is archived and can no longer be confirmed.", undefined, "ARCHIVED");
+  }
+  if (request.invalidatedAt) {
+    throw AppError.badRequest("This confirmation link has been revoked.", undefined, "REVOKED_TOKEN");
+  }
+  if (request.usedAt) {
+    throw AppError.badRequest("This confirmation link has already been used.", undefined, "USED_TOKEN");
+  }
+  if (request.expiresAt < new Date()) {
+    throw AppError.badRequest("This confirmation link has expired.", undefined, "EXPIRED_TOKEN");
+  }
+  if (request.receipt.status === "DISPUTED") {
+    throw AppError.badRequest("This receipt is under dispute.", undefined, "DISPUTED");
+  }
+  if (request.receipt.status === "CORRECTION_REQUESTED") {
+    throw AppError.badRequest(
+      "A correction was requested. The worker must resubmit before confirmation can continue.",
+      undefined,
+      "CORRECTION_REQUESTED",
+    );
+  }
+  if (request.receipt.status !== "PENDING_VERIFICATION") {
+    throw AppError.badRequest("This receipt is not awaiting confirmation.", undefined, "INVALID_STATE");
+  }
+  throw AppError.badRequest("This confirmation link is no longer valid.", undefined, "INVALID_TOKEN");
+}
 
 export async function getVerificationByToken(token: string) {
   const tokenHash = hashToken(token);
@@ -15,22 +52,30 @@ export async function getVerificationByToken(token: string) {
     where: { tokenHash },
     include: {
       receipt: {
-        include: { evidence: true, worker: { select: { fullName: true } } },
+        include: {
+          evidence: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
+          worker: {
+            select: {
+              fullName: true,
+              workerProfile: { select: { profileSlug: true } },
+            },
+          },
+        },
       },
     },
   });
 
-  if (!request) throw AppError.notFound("Verification link is invalid or expired.");
-  if (request.invalidatedAt) {
-    throw AppError.badRequest("This verification link is no longer valid.");
-  }
-  if (request.usedAt) throw AppError.badRequest("This verification link has already been used.");
-  if (request.expiresAt < new Date()) {
-    throw AppError.badRequest("This verification link has expired.");
-  }
-  // GET must not claim or consume the token.
-  if (request.receipt.status !== "PENDING_VERIFICATION") {
-    throw AppError.badRequest("This receipt is not awaiting verification.");
+  if (!request) throw AppError.notFound("Confirmation link is invalid or expired.");
+
+  // GET must not claim or consume the token — but surface distinct professional states.
+  if (
+    request.invalidatedAt ||
+    request.usedAt ||
+    request.expiresAt < new Date() ||
+    request.receipt.status !== "PENDING_VERIFICATION" ||
+    request.receipt.archivedAt
+  ) {
+    tokenStateError(request);
   }
 
   const { receipt } = request;
@@ -42,18 +87,43 @@ export async function getVerificationByToken(token: string) {
       : receipt.durationMinutes != null
         ? formatDuration(receipt.durationMinutes, "MINUTE")
         : null;
+
+  const method = request.method;
+  const evidence = receipt.evidence.map((item) => ({
+    ...serializeEvidenceSafe(item),
+    // Customer may download file evidence for this receipt using the same confirmation token.
+    canDownload: item.type !== "LINK",
+  }));
+
   return {
     serviceTitle: receipt.serviceTitle,
     description: receipt.description,
     workDate: receipt.workDate,
     workerName: receipt.worker.fullName,
+    profileSlug: receipt.worker.workerProfile?.profileSlug ?? null,
     customerName: receipt.customerName,
+    amount: receipt.amount != null ? Number(receipt.amount) : null,
+    currency: receipt.currency,
     skillsDemonstrated: receipt.skillsDemonstrated,
-    evidenceCount: receipt.evidence.length,
+    evidenceCount: evidence.length,
+    evidence,
+    evidenceDisclosure:
+      "Supporting evidence was supplied with this receipt. Evidence supports the work record but does not replace customer confirmation.",
     status: receipt.status,
     expiresAt: request.expiresAt,
     attemptNumber: request.attemptNumber,
     durationLabel,
+    confirmationMethod: method,
+    confirmationMethodLabel:
+      method === "EMAIL"
+        ? "Confirmed through email link"
+        : method === "SHARE_LINK"
+          ? "Confirmed through secure share link"
+          : "Confirmed in person",
+    confirmationAssurancePreview: confirmationAssuranceLabel(method),
+    confirmationChannelNote: confirmationChannelNote(method),
+    privacyNote:
+      "Your confirmation becomes portable proof for this work. Customer contact details are not shown on the public proof page.",
   };
 }
 
@@ -76,22 +146,19 @@ export async function respondToVerification(
     });
 
     if (!existing) {
-      throw AppError.notFound("Verification link is invalid or expired.");
+      throw AppError.notFound("Confirmation link is invalid or expired.");
     }
-    if (existing.invalidatedAt) {
-      throw AppError.badRequest("This verification link is no longer valid.");
-    }
-    if (existing.usedAt) {
-      throw AppError.badRequest("This verification link has already been used.");
-    }
-    if (existing.expiresAt < now) {
-      throw AppError.badRequest("This verification link has expired.");
+    if (
+      existing.invalidatedAt ||
+      existing.usedAt ||
+      existing.expiresAt < now ||
+      existing.receipt.status !== "PENDING_VERIFICATION" ||
+      existing.receipt.archivedAt
+    ) {
+      tokenStateError(existing);
     }
     if (existing.claimedAt) {
-      throw AppError.badRequest("This verification link is already being processed.");
-    }
-    if (existing.receipt.status !== "PENDING_VERIFICATION") {
-      throw AppError.badRequest("This receipt is not awaiting verification.");
+      throw AppError.badRequest("This confirmation link is already being processed.", undefined, "CLAIMED");
     }
 
     const claimResult = await tx.verificationRequest.updateMany({
@@ -107,7 +174,7 @@ export async function respondToVerification(
     });
 
     if (claimResult.count !== 1) {
-      throw AppError.badRequest("This verification link could not be claimed.");
+      throw AppError.badRequest("This confirmation link could not be claimed.", undefined, "CLAIM_CONFLICT");
     }
 
     return existing;
@@ -118,6 +185,7 @@ export async function respondToVerification(
       verificationRequestId: claimed.id,
       receiptId: claimed.receiptId,
       attemptNumber: claimed.attemptNumber,
+      method: claimed.method,
       decision: input.decision,
       customerName: input.customerName,
       customerEmail: claimed.customerEmail,
@@ -134,7 +202,11 @@ export async function respondToVerification(
       entityType: "WorkReceipt",
       entityId: claimed.receiptId,
       ipAddress: meta.ipAddress,
-      metadata: { attemptNumber: claimed.attemptNumber, decision: input.decision },
+      metadata: {
+        attemptNumber: claimed.attemptNumber,
+        decision: input.decision,
+        confirmationMethod: claimed.method,
+      },
     });
 
     return result;

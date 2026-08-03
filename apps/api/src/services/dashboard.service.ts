@@ -27,10 +27,9 @@ export async function getWorkerDashboard(workerId: string) {
   const disputed = active.filter((r) => r.status === "DISPUTED");
   const revoked = active.filter((r) => r.status === "REVOKED");
 
-  const customerEmails = new Set(verified.map((r) => r.customerEmail.toLowerCase()));
   const repeatCustomers = verified.reduce((acc, r) => {
-    const email = r.customerEmail.toLowerCase();
-    acc.set(email, (acc.get(email) ?? 0) + 1);
+    const key = (r.customerEmail ?? r.customerName).toLowerCase();
+    acc.set(key, (acc.get(key) ?? 0) + 1);
     return acc;
   }, new Map<string, number>());
   const repeatCustomerCount = [...repeatCustomers.values()].filter((c) => c > 1).length;
@@ -57,7 +56,7 @@ export async function getWorkerDashboard(workerId: string) {
     pendingReceipts: pending.length,
     disputedReceipts: disputed.length,
     revokedReceipts: revoked.length,
-    uniqueCustomers: customerEmails.size,
+    uniqueCustomers: repeatCustomers.size,
     repeatCustomerCount,
     verificationRate:
       active.length > 0 ? Math.round((verified.length / active.length) * 100) : 0,

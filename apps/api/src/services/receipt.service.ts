@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   ConfirmationDecision,
+  ConfirmationMethod,
   DurationUnit,
   ReceiptStatus,
   Visibility,
@@ -33,12 +34,45 @@ import { createAuditLog } from "./audit.service.js";
 import { serializeEvidenceSafe } from "./evidence.service.js";
 import { recordReceiptEvent } from "./receipt-event.service.js";
 import {
+  buildShareConfirmationMessage,
+  confirmationAssuranceLabel,
+  confirmationChannelNote,
   formatDuration,
   resolveDurationInput,
+  type ConfirmationMethod as SharedConfirmationMethod,
   type DurationUnit as SharedDurationUnit,
   type ReceiptCreateInput,
   type ReceiptUpdateInput,
 } from "@workproof/shared";
+
+function tokenExpiryForMethod(method: ConfirmationMethod): Date {
+  if (method === "IN_PERSON_QR") {
+    return new Date(Date.now() + env.IN_PERSON_QR_TOKEN_EXPIRY_MINUTES * 60 * 1000);
+  }
+  if (method === "SHARE_LINK") {
+    return new Date(Date.now() + env.SHARE_LINK_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
+  }
+  return new Date(Date.now() + env.VERIFICATION_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
+}
+
+function buildConfirmationUrl(rawToken: string): string {
+  const base = env.WEB_APP_URL.replace(/\/+$/, "");
+  return `${base}/verify/${rawToken}`;
+}
+
+function normalizeCustomerEmail(
+  method: ConfirmationMethod,
+  email: string | null | undefined,
+): string | null {
+  if (method === "EMAIL") {
+    if (!email?.trim()) {
+      throw AppError.badRequest("Customer email is required for email confirmation.");
+    }
+    return email.trim().toLowerCase();
+  }
+  if (email?.trim()) return email.trim().toLowerCase();
+  return null;
+}
 
 const activeEvidence = { deletedAt: null as Date | null };
 
@@ -84,12 +118,15 @@ function serializeReceipt(receipt: Record<string, unknown>) {
 
 export async function createReceipt(workerId: string, input: ReceiptCreateInput, ip?: string) {
   const duration = mapDurationFields(input);
+  const confirmationMethod = (input.confirmationMethod ?? "EMAIL") as ConfirmationMethod;
+  const customerEmail = normalizeCustomerEmail(confirmationMethod, input.customerEmail);
   const receipt = await prisma.workReceipt.create({
     data: {
       workerId,
       customerName: input.customerName,
-      customerEmail: input.customerEmail.toLowerCase(),
+      customerEmail,
       customerPhone: input.customerPhone,
+      confirmationMethod,
       serviceTitle: input.serviceTitle,
       description: input.description,
       workDate: new Date(input.workDate),
@@ -235,14 +272,25 @@ export async function updateReceipt(
       })
     : null;
 
+  const nextMethod = (input.confirmationMethod ??
+    receipt.confirmationMethod) as ConfirmationMethod;
+  let nextEmail: string | null | undefined;
+  if (input.customerEmail !== undefined || input.confirmationMethod !== undefined) {
+    nextEmail = normalizeCustomerEmail(
+      nextMethod,
+      input.customerEmail !== undefined ? input.customerEmail : receipt.customerEmail,
+    );
+  }
+
   const updated = await prisma.workReceipt.update({
     where: { id: receiptId },
     data: {
       ...(input.customerName !== undefined ? { customerName: input.customerName } : {}),
-      ...(input.customerEmail !== undefined
-        ? { customerEmail: input.customerEmail.toLowerCase() }
-        : {}),
+      ...(nextEmail !== undefined ? { customerEmail: nextEmail } : {}),
       ...(input.customerPhone !== undefined ? { customerPhone: input.customerPhone } : {}),
+      ...(input.confirmationMethod !== undefined
+        ? { confirmationMethod: input.confirmationMethod as ConfirmationMethod }
+        : {}),
       ...(input.serviceTitle !== undefined ? { serviceTitle: input.serviceTitle } : {}),
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.workDate !== undefined ? { workDate: new Date(input.workDate) } : {}),
@@ -327,103 +375,159 @@ export async function submitReceipt(workerId: string, receiptId: string, ip?: st
     throw AppError.badRequest("Only draft or correction-requested receipts can be submitted.");
   }
 
+  const method = receipt.confirmationMethod;
+  normalizeCustomerEmail(method, receipt.customerEmail);
   assertTransition(receipt.status, "PENDING_VERIFICATION");
 
+  return issueConfirmationAttempt({
+    worker,
+    receipt,
+    nextAttempt: (receipt.verificationRequests[0]?.attemptNumber ?? 0) + 1,
+    fromStatus: receipt.status,
+    eventType: receipt.status === "CORRECTION_REQUESTED" ? "resubmitted" : "submitted",
+    emailJobType: "CUSTOMER_VERIFICATION",
+    auditAction: "RECEIPT_SUBMITTED",
+    ip,
+    transitionToPending: true,
+  });
+}
+
+async function issueConfirmationAttempt(input: {
+  worker: { id: string; fullName: string };
+  receipt: {
+    id: string;
+    customerName: string;
+    customerEmail: string | null;
+    confirmationMethod: ConfirmationMethod;
+    serviceTitle: string;
+    workDate: Date;
+    status: ReceiptStatus;
+  };
+  nextAttempt: number;
+  fromStatus: ReceiptStatus;
+  eventType: string;
+  emailJobType: "CUSTOMER_VERIFICATION" | "CUSTOMER_VERIFICATION_RESEND";
+  auditAction: string;
+  ip?: string;
+  transitionToPending: boolean;
+}) {
+  const { worker, receipt } = input;
+  const method = receipt.confirmationMethod;
+  const customerEmail = normalizeCustomerEmail(method, receipt.customerEmail);
   const token = generateVerificationToken();
   const tokenHash = hashToken(token);
-  const expiresAt = new Date(
-    Date.now() + env.VERIFICATION_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000,
-  );
-  const nextAttempt = (receipt.verificationRequests[0]?.attemptNumber ?? 0) + 1;
-  const fromStatus = receipt.status;
-  const eventType = fromStatus === "CORRECTION_REQUESTED" ? "resubmitted" : "submitted";
+  const expiresAt = tokenExpiryForMethod(method);
   const verificationRequestId = randomUUID();
+  const confirmationUrl = buildConfirmationUrl(token);
+  const shareMessage = buildShareConfirmationMessage({
+    customerName: receipt.customerName,
+    workerName: worker.fullName,
+    confirmationUrl,
+  });
 
   await prisma.$transaction(async (tx) => {
     await tx.verificationRequest.updateMany({
-      where: {
-        receiptId,
-        usedAt: null,
-        invalidatedAt: null,
-      },
+      where: { receiptId: receipt.id, usedAt: null, invalidatedAt: null },
       data: { invalidatedAt: new Date() },
     });
 
     await tx.verificationRequest.create({
       data: {
         id: verificationRequestId,
-        receiptId,
+        receiptId: receipt.id,
         tokenHash,
-        attemptNumber: nextAttempt,
-        customerEmail: receipt.customerEmail,
+        attemptNumber: input.nextAttempt,
+        method,
+        customerEmail,
         expiresAt,
       },
     });
 
-    await tx.workReceipt.update({
-      where: { id: receiptId },
-      data: { status: "PENDING_VERIFICATION", submittedAt: new Date() },
-    });
+    if (input.transitionToPending) {
+      await tx.workReceipt.update({
+        where: { id: receipt.id },
+        data: { status: "PENDING_VERIFICATION", submittedAt: new Date() },
+      });
+    }
+
+    const methodLabel =
+      method === "EMAIL"
+        ? "email"
+        : method === "SHARE_LINK"
+          ? "secure share link"
+          : "in-person QR";
 
     await recordReceiptEvent(
       {
-        receiptId,
-        actorId: workerId,
+        receiptId: receipt.id,
+        actorId: worker.id,
         actorType: "WORKER",
-        eventType,
-        fromStatus,
+        eventType: input.eventType,
+        fromStatus: input.fromStatus,
         toStatus: "PENDING_VERIFICATION",
         publicSummary:
-          eventType === "resubmitted"
-            ? `Resubmitted for verification (attempt ${nextAttempt}).`
-            : `Submitted for customer verification (attempt ${nextAttempt}).`,
-        ipAddress: ip,
+          input.eventType === "resubmitted" || input.eventType === "verification_resent"
+            ? `Confirmation link issued via ${methodLabel} (attempt ${input.nextAttempt}).`
+            : `Submitted for customer confirmation via ${methodLabel} (attempt ${input.nextAttempt}).`,
+        ipAddress: input.ip,
+        metadata: { confirmationMethod: method, attemptNumber: input.nextAttempt },
       },
       tx,
     );
 
-    await enqueueEmailJob(
-      {
-        type: "CUSTOMER_VERIFICATION",
-        recipientEmail: receipt.customerEmail,
-        recipientName: receipt.customerName,
-        relatedUserId: workerId,
-        relatedReceiptId: receiptId,
-        relatedVerificationRequestId: verificationRequestId,
-        payload: {
-          kind: "CUSTOMER_VERIFICATION",
-          rawToken: token,
-          receiptId,
-          workerName: worker.fullName,
-          serviceTitle: receipt.serviceTitle,
-          workDate: receipt.workDate.toISOString().slice(0, 10),
-          customerName: receipt.customerName,
-          expiresAt: expiresAt.toISOString(),
-          attemptNumber: nextAttempt,
+    if (method === "EMAIL" && customerEmail) {
+      await enqueueEmailJob(
+        {
+          type: input.emailJobType,
+          recipientEmail: customerEmail,
+          recipientName: receipt.customerName,
+          relatedUserId: worker.id,
+          relatedReceiptId: receipt.id,
+          relatedVerificationRequestId: verificationRequestId,
+          payload: {
+            kind: input.emailJobType,
+            rawToken: token,
+            receiptId: receipt.id,
+            workerName: worker.fullName,
+            serviceTitle: receipt.serviceTitle,
+            workDate: receipt.workDate.toISOString().slice(0, 10),
+            customerName: receipt.customerName,
+            expiresAt: expiresAt.toISOString(),
+            attemptNumber: input.nextAttempt,
+          },
         },
-      },
-      tx,
-    );
+        tx,
+      );
+    }
   });
 
   await createAuditLog({
-    actorId: workerId,
-    receiptId,
-    action: "RECEIPT_SUBMITTED",
+    actorId: worker.id,
+    receiptId: receipt.id,
+    action: input.auditAction,
     entityType: "WorkReceipt",
-    entityId: receiptId,
-    ipAddress: ip,
-    metadata: { attemptNumber: nextAttempt },
+    entityId: receipt.id,
+    ipAddress: input.ip,
+    metadata: { attemptNumber: input.nextAttempt, confirmationMethod: method },
   });
 
+  const includeUrl = method !== "EMAIL" || env.ALLOW_DEV_VERIFICATION_TOKEN;
   return {
-    ...(env.ALLOW_DEV_VERIFICATION_TOKEN ? { verificationToken: token } : {}),
+    confirmationMethod: method as SharedConfirmationMethod,
     expiresAt: expiresAt.toISOString(),
-    attemptNumber: nextAttempt,
-    deliveryQueued: true,
+    attemptNumber: input.nextAttempt,
+    deliveryQueued: method === "EMAIL",
+    ...(includeUrl
+      ? {
+          confirmationUrl,
+          shareMessage,
+          ...(env.ALLOW_DEV_VERIFICATION_TOKEN ? { verificationToken: token } : {}),
+        }
+      : {}),
   };
 }
 
+/** Resend email or regenerate share/QR confirmation link. Revokes prior unused tokens. */
 export async function resendCustomerVerification(workerId: string, receiptId: string, ip?: string) {
   const worker = await prisma.user.findUnique({ where: { id: workerId } });
   if (!worker) throw AppError.notFound("User not found.");
@@ -434,7 +538,7 @@ export async function resendCustomerVerification(workerId: string, receiptId: st
   });
   if (!receipt) throw AppError.notFound("Receipt not found.");
   if (receipt.status !== "PENDING_VERIFICATION") {
-    throw AppError.badRequest("Only pending verification receipts can resend the customer email.");
+    throw AppError.badRequest("Only pending confirmation receipts can regenerate a confirmation link.");
   }
 
   const latest = receipt.verificationRequests[0];
@@ -443,93 +547,32 @@ export async function resendCustomerVerification(workerId: string, receiptId: st
     const cooldownMs = env.CUSTOMER_VERIFICATION_RESEND_COOLDOWN_SECONDS * 1000;
     if (elapsed < cooldownMs) {
       const remaining = Math.ceil((cooldownMs - elapsed) / 1000);
-      throw AppError.badRequest(`Please wait ${remaining}s before resending verification.`, {
+      throw AppError.badRequest(`Please wait ${remaining}s before regenerating the confirmation link.`, {
         cooldown: [`${remaining}`],
       });
     }
   }
 
-  const token = generateVerificationToken();
-  const tokenHash = hashToken(token);
-  const expiresAt = new Date(
-    Date.now() + env.VERIFICATION_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000,
-  );
-  const nextAttempt = (latest?.attemptNumber ?? 0) + 1;
-  const verificationRequestId = randomUUID();
-
-  await prisma.$transaction(async (tx) => {
-    await tx.verificationRequest.updateMany({
-      where: { receiptId, usedAt: null, invalidatedAt: null },
-      data: { invalidatedAt: new Date() },
-    });
-
-    await tx.verificationRequest.create({
-      data: {
-        id: verificationRequestId,
-        receiptId,
-        tokenHash,
-        attemptNumber: nextAttempt,
-        customerEmail: receipt.customerEmail,
-        expiresAt,
-      },
-    });
-
-    await recordReceiptEvent(
-      {
-        receiptId,
-        actorId: workerId,
-        actorType: "WORKER",
-        eventType: "verification_resent",
-        fromStatus: "PENDING_VERIFICATION",
-        toStatus: "PENDING_VERIFICATION",
-        publicSummary: `Customer verification email resent (attempt ${nextAttempt}).`,
-        ipAddress: ip,
-      },
-      tx,
-    );
-
-    await enqueueEmailJob(
-      {
-        type: "CUSTOMER_VERIFICATION_RESEND",
-        recipientEmail: receipt.customerEmail,
-        recipientName: receipt.customerName,
-        relatedUserId: workerId,
-        relatedReceiptId: receiptId,
-        relatedVerificationRequestId: verificationRequestId,
-        payload: {
-          kind: "CUSTOMER_VERIFICATION_RESEND",
-          rawToken: token,
-          receiptId,
-          workerName: worker.fullName,
-          serviceTitle: receipt.serviceTitle,
-          workDate: receipt.workDate.toISOString().slice(0, 10),
-          customerName: receipt.customerName,
-          expiresAt: expiresAt.toISOString(),
-          attemptNumber: nextAttempt,
-        },
-      },
-      tx,
-    );
-  });
-
-  await createAuditLog({
-    actorId: workerId,
-    receiptId,
-    action: "CUSTOMER_VERIFICATION_RESENT",
-    entityType: "WorkReceipt",
-    entityId: receiptId,
-    ipAddress: ip,
-    metadata: { attemptNumber: nextAttempt },
+  const result = await issueConfirmationAttempt({
+    worker,
+    receipt,
+    nextAttempt: (latest?.attemptNumber ?? 0) + 1,
+    fromStatus: "PENDING_VERIFICATION",
+    eventType: "verification_resent",
+    emailJobType: "CUSTOMER_VERIFICATION_RESEND",
+    auditAction: "CUSTOMER_VERIFICATION_RESENT",
+    ip,
+    transitionToPending: false,
   });
 
   return {
-    ...(env.ALLOW_DEV_VERIFICATION_TOKEN ? { verificationToken: token } : {}),
-    expiresAt: expiresAt.toISOString(),
-    attemptNumber: nextAttempt,
-    deliveryQueued: true,
+    ...result,
     resendCooldownSeconds: env.CUSTOMER_VERIFICATION_RESEND_COOLDOWN_SECONDS,
   };
 }
+
+/** Alias used by in-person QR / share-link UI. */
+export const regenerateConfirmationLink = resendCustomerVerification;
 
 export async function getVerificationDeliveryStatus(workerId: string, receiptId: string) {
   const receipt = await prisma.workReceipt.findFirst({ where: { id: receiptId, workerId } });
@@ -664,6 +707,14 @@ export async function getPublicProof(verificationCode: string) {
         ? formatDuration(receipt.durationMinutes, "MINUTE")
         : null;
 
+  const confirmedMethod =
+    (receipt.confirmedMethod as SharedConfirmationMethod | null) ??
+    (receipt.status === "VERIFIED" ? ("EMAIL" as SharedConfirmationMethod) : null);
+  const publicEvidence =
+    receipt.status === "VERIFIED"
+      ? receipt.evidence.filter((e) => e.visibility === "PUBLIC_PROOF")
+      : [];
+
   return {
     receiptNumber: receipt.receiptNumber,
     workerName: receipt.worker.fullName,
@@ -681,23 +732,28 @@ export async function getPublicProof(verificationCode: string) {
     integrityHash: receipt.integrityHash,
     integrityVersion: receipt.integrityVersion,
     status: receipt.status,
+    confirmedMethod,
+    confirmationAssuranceLabel: confirmedMethod
+      ? confirmationAssuranceLabel(confirmedMethod)
+      : null,
+    confirmationChannelNote: confirmedMethod ? confirmationChannelNote(confirmedMethod) : null,
+    evidenceDisclosure:
+      "Supporting evidence was supplied with this receipt. Evidence supports the work record but does not replace customer confirmation.",
     revokedAt: receipt.revokedAt,
     revocationReason:
       receipt.status === "REVOKED" ? (receipt.revocationReason ?? "Revoked by administrator.") : null,
     amount: showAmount && receipt.amount != null ? Number(receipt.amount) : null,
     currency: showAmount ? receipt.currency : null,
-    evidence:
-      receipt.status === "VERIFIED"
-        ? receipt.evidence.map((e) => ({
-            type: e.type,
-            description: e.description,
-            filenameCategory: filenameCategory(e.mimeType, e.type),
-            ...(e.type === "LINK" && allowPublicLinks
-              ? { url: e.externalUrl ?? e.url ?? undefined }
-              : {}),
-          }))
-        : [],
-    evidenceCount: receipt.status === "VERIFIED" ? receipt.evidence.length : 0,
+    evidence: publicEvidence.map((e) => ({
+      type: e.type,
+      description: e.description,
+      linkPlatform: e.linkPlatform,
+      filenameCategory: filenameCategory(e.mimeType, e.type),
+      ...(e.type === "LINK" && allowPublicLinks
+        ? { url: e.externalUrl ?? e.url ?? undefined }
+        : {}),
+    })),
+    evidenceCount: publicEvidence.length,
   };
 }
 
@@ -705,9 +761,10 @@ export async function applyVerificationDecision(input: {
   verificationRequestId: string;
   receiptId: string;
   attemptNumber: number;
+  method: ConfirmationMethod;
   decision: ConfirmationDecision;
   customerName: string;
-  customerEmail: string;
+  customerEmail: string | null;
   comment?: string;
   reason?: string;
   description?: string;
@@ -768,6 +825,7 @@ export async function applyVerificationDecision(input: {
           receiptId: input.receiptId,
           verificationRequestId: input.verificationRequestId,
           attemptNumber: input.attemptNumber,
+          method: input.method,
           decision: "CONFIRMED",
           customerName: input.customerName,
           customerEmail: input.customerEmail,
@@ -787,6 +845,7 @@ export async function applyVerificationDecision(input: {
         where: { id: input.receiptId },
         data: {
           status: "VERIFIED",
+          confirmedMethod: input.method,
           receiptNumber,
           verificationCode,
           integrityHash,
@@ -803,8 +862,11 @@ export async function applyVerificationDecision(input: {
           eventType: "verified",
           fromStatus: "PENDING_VERIFICATION",
           toStatus: "VERIFIED",
-          publicSummary: "Customer confirmed the work. Receipt verified.",
+          publicSummary: confirmationAssuranceLabel(
+            input.method as SharedConfirmationMethod,
+          ),
           ipAddress: input.ipAddress,
+          metadata: { confirmationMethod: input.method },
         },
         tx,
       );
@@ -820,6 +882,7 @@ export async function applyVerificationDecision(input: {
           receiptId: input.receiptId,
           verificationRequestId: input.verificationRequestId,
           attemptNumber: input.attemptNumber,
+          method: input.method,
           decision: "CORRECTION_REQUESTED",
           customerName: input.customerName,
           customerEmail: input.customerEmail,
@@ -859,6 +922,7 @@ export async function applyVerificationDecision(input: {
         receiptId: input.receiptId,
         verificationRequestId: input.verificationRequestId,
         attemptNumber: input.attemptNumber,
+        method: input.method,
         decision: "DISPUTED",
         customerName: input.customerName,
         customerEmail: input.customerEmail,
@@ -940,6 +1004,7 @@ export const confirmReceiptInternally = async (
     verificationRequestId: latest.id,
     receiptId,
     attemptNumber: latest.attemptNumber,
+    method: latest.method,
     decision: input.decision,
     customerName: input.customerName,
     customerEmail: latest.customerEmail,

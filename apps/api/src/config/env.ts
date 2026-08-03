@@ -1,5 +1,9 @@
 import "dotenv/config";
 import { z } from "zod";
+import {
+  isDatabaseSslCaRequired,
+  normalizeDatabaseSslCa,
+} from "../lib/database-ssl.js";
 
 function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
   if (value === undefined || value === "") return defaultValue;
@@ -19,6 +23,8 @@ const rawSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().min(1),
   TEST_DATABASE_URL: z.string().optional(),
+  /** PEM text for a trusted database CA (required for Supabase pooler in production). */
+  DATABASE_SSL_CA: z.string().optional(),
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
   WEB_APP_URL: z.string().url().optional(),
   ALLOWED_ORIGINS: z.string().optional(),
@@ -174,7 +180,18 @@ if (isProduction) {
     });
     process.exit(1);
   }
+  if (isDatabaseSslCaRequired(raw.NODE_ENV, raw.DATABASE_URL) && !normalizeDatabaseSslCa(raw.DATABASE_SSL_CA)) {
+    console.error("Invalid environment configuration:");
+    console.error({
+      DATABASE_SSL_CA: [
+        "DATABASE_SSL_CA (trusted database CA PEM) is required in production when using a Supabase pooler host.",
+      ],
+    });
+    process.exit(1);
+  }
 }
+
+const databaseSslCa = normalizeDatabaseSslCa(raw.DATABASE_SSL_CA);
 
 if (raw.STORAGE_PROVIDER === "supabase" && !isTest) {
   if (!raw.SUPABASE_URL || !raw.SUPABASE_SERVICE_ROLE_KEY) {
@@ -191,6 +208,7 @@ export const env = {
   PORT: raw.PORT,
   DATABASE_URL: raw.DATABASE_URL,
   TEST_DATABASE_URL: raw.TEST_DATABASE_URL,
+  DATABASE_SSL_CA: databaseSslCa,
   FRONTEND_URL: raw.FRONTEND_URL,
   WEB_APP_URL: webAppUrl,
   ALLOWED_ORIGINS: allowedOrigins,
@@ -258,6 +276,11 @@ export function getDatabaseUrl(): string {
     return env.TEST_DATABASE_URL;
   }
   return env.DATABASE_URL;
+}
+
+/** Trusted database CA PEM when configured. Never log the returned value. */
+export function getDatabaseSslCa(): string | undefined {
+  return env.DATABASE_SSL_CA;
 }
 
 export function isOriginAllowed(origin: string | undefined): boolean {

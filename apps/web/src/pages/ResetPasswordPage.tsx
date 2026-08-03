@@ -58,72 +58,78 @@ export default function ResetPasswordPage() {
 
   return (
     <Layout>
-      <div className="auth-card">
-        <h1>Choose a new password</h1>
-        {done ? (
-          <div role="status" aria-live="polite">
-            <Alert tone="success" message="Password updated. All other sessions were signed out." />
-            <p className="form-footer">
-              <Link to="/login">Sign in with your new password</Link>
-            </p>
-          </div>
-        ) : invalidState && !loading ? (
-          <div role="alert" aria-live="assertive">
-            {missingToken && <Alert tone="error" message="This reset link is missing a token." />}
-            {code === 'PASSWORD_RESET_USED' && (
-              <Alert tone="error" message="This reset link has already been used." />
-            )}
-            {code === 'PASSWORD_RESET_EXPIRED' && (
-              <Alert tone="error" message="This reset link has expired." />
-            )}
-            {code === 'PASSWORD_RESET_INVALID' && (
-              <Alert tone="error" message="This reset link is invalid." />
-            )}
-            {error && !code && <Alert tone="error" message={error} />}
-            <p className="form-footer">
-              <Link to="/forgot-password">Request a new reset link</Link>
-            </p>
-          </div>
-        ) : (
-          <>
-            {error && <Alert tone="error" message={error} />}
-            <form onSubmit={(e) => void handleSubmit(e)} className="form-stack">
-              <fieldset>
-                <legend>Password requirements</legend>
-                <ul className="password-reqs" aria-live="polite">
-                  {requirements.map((r) => (
-                    <li key={r.label} className={r.ok ? 'ok' : ''}>
-                      {r.ok ? '✓' : '○'} {r.label}
-                    </li>
-                  ))}
-                </ul>
-              </fieldset>
-              <label>
-                New password
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                />
-              </label>
-              <label>
-                Confirm password
-                <input
-                  type="password"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                />
-              </label>
-              <button type="submit" className="btn btn-primary" disabled={loading}>
-                {loading ? 'Updating…' : 'Update password'}
-              </button>
-            </form>
-          </>
-        )}
+      <div className="auth-shell">
+        <div className="auth-card">
+          <h1>Choose a new password</h1>
+          {done ? (
+            <div role="status" aria-live="polite">
+              <Alert tone="success" message="Password updated. All other sessions were signed out." />
+              <p className="form-footer">
+                <Link to="/login">Sign in with your new password</Link>
+              </p>
+            </div>
+          ) : invalidState && !loading ? (
+            <div role="alert" aria-live="assertive">
+              {missingToken && <Alert tone="error" message="This reset link is missing a token." />}
+              {code === 'PASSWORD_RESET_USED' && (
+                <Alert tone="error" message="This reset link has already been used." />
+              )}
+              {code === 'PASSWORD_RESET_EXPIRED' && (
+                <Alert tone="error" message="This reset link has expired." />
+              )}
+              {code === 'PASSWORD_RESET_INVALID' && (
+                <Alert tone="error" message="This reset link is invalid." />
+              )}
+              {error && !code && <Alert tone="error" message={error} />}
+              <p className="form-footer">
+                <Link to="/forgot-password">Request a new reset link</Link>
+              </p>
+            </div>
+          ) : (
+            <>
+              {error && <Alert tone="error" message={error} />}
+              <form onSubmit={(e) => void handleSubmit(e)} className="form-stack">
+                <fieldset>
+                  <legend className="sr-only">Password requirements</legend>
+                  <ul className="password-reqs" aria-live="polite">
+                    {requirements.map((r) => (
+                      <li key={r.label} className={r.ok ? 'ok' : undefined}>
+                        {r.label}
+                      </li>
+                    ))}
+                  </ul>
+                </fieldset>
+                <label>
+                  New password
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                  />
+                </label>
+                <label>
+                  Confirm password
+                  <input
+                    type="password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className={`btn btn-primary ${loading ? 'is-loading' : ''}`}
+                  disabled={loading}
+                >
+                  {loading ? 'Updating…' : 'Update password'}
+                </button>
+              </form>
+            </>
+          )}
+        </div>
       </div>
     </Layout>
   );

@@ -78,6 +78,7 @@ export default function ReceiptsPage() {
   return (
     <Layout>
       <PageHeader
+        compact
         title="Work receipts"
         subtitle="Your Verified Work Receipt portfolio"
         action={
@@ -122,7 +123,7 @@ export default function ReceiptsPage() {
             <option value="status">Status</option>
           </select>
         </label>
-        <button type="button" className="btn btn-secondary" onClick={clearFilters} disabled={!hasFilters}>
+        <button type="button" className="btn btn-quiet" onClick={clearFilters} disabled={!hasFilters}>
           Clear filters
         </button>
       </FilterToolbar>
@@ -155,15 +156,19 @@ export default function ReceiptsPage() {
         />
       )}
       {!error && !loading && receipts.length > 0 && (
-        <div className="receipt-grid">
+        <div className="receipt-grid" key={`${search}|${status}|${sort}`}>
           {receipts.map((r) => (
             <Link key={r.id} to={`/receipts/${r.id}`} className="card receipt-card">
               <div className="receipt-card-header">
                 <h3>{r.serviceTitle}</h3>
+                <p className="receipt-card-meta">
+                  <span>{r.customerName}</span>
+                  <span>{new Date(r.workDate).toLocaleDateString()}</span>
+                </p>
+              </div>
+              <div className="receipt-card-status">
                 <StatusBadge status={r.archivedAt ? 'ARCHIVED' : r.status} />
               </div>
-              <p>{r.customerName}</p>
-              <p className="muted">{new Date(r.workDate).toLocaleDateString()}</p>
             </Link>
           ))}
         </div>

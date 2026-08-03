@@ -10,6 +10,7 @@ export default function VerifyPage() {
   const [success, setSuccess] = useState('');
   const [decision, setDecision] = useState<'CONFIRMED' | 'CORRECTION_REQUESTED' | 'DISPUTED'>('CONFIRMED');
   const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -18,7 +19,9 @@ export default function VerifyPage() {
 
   async function handleRespond(e: React.FormEvent) {
     e.preventDefault();
-    if (!token || !view) return;
+    if (!token || !view || submitting) return;
+    setSubmitting(true);
+    setError('');
     try {
       const result = await api.respondVerification(token, {
         decision,
@@ -30,38 +33,66 @@ export default function VerifyPage() {
       setSuccess(result.status === 'VERIFIED' ? 'Thank you — this work receipt is now verified and locked.' : `Response recorded: ${result.status.replace(/_/g, ' ')}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not submit response');
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
     <Layout>
       <div className="verify-page">
-        <h1>Verify completed work</h1>
-        <p className="subtitle">No account required. Review the work below and confirm your experience.</p>
+        <div className="auth-card" style={{ maxWidth: '100%', marginBottom: '1rem' }}>
+          <h1 style={{ margin: 0 }}>Verify completed work</h1>
+          <p className="subtitle">No account required. Review the work below and confirm your experience.</p>
+        </div>
         {error && <Alert tone="error" message={error} />}
         {success && <Alert tone="success" message={success} />}
         {view && !success && (
           <>
-            <div className="card">
+            <div className="card section-card">
               <h2>{view.serviceTitle}</h2>
               <p>Worker: <strong>{view.workerName}</strong></p>
               <p>{view.description}</p>
-              <p>Work date: {new Date(view.workDate).toLocaleDateString()}</p>
-              <p>Skills: {view.skillsDemonstrated.join(', ')}</p>
-              <p>Evidence items: {view.evidenceCount}</p>
+              <dl className="detail-list" style={{ marginTop: '1rem' }}>
+                <div>
+                  <dt>Work date</dt>
+                  <dd>{new Date(view.workDate).toLocaleDateString()}</dd>
+                </div>
+                <div>
+                  <dt>Skills</dt>
+                  <dd>{view.skillsDemonstrated.join(', ') || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Evidence items</dt>
+                  <dd>{view.evidenceCount}</dd>
+                </div>
+              </dl>
             </div>
             <form onSubmit={(e) => void handleRespond(e)} className="card form-stack">
-              <label>Your decision
+              <label>
+                Your decision
                 <select value={decision} onChange={(e) => setDecision(e.target.value as typeof decision)}>
                   <option value="CONFIRMED">Confirm — work completed satisfactorily</option>
                   <option value="CORRECTION_REQUESTED">Request correction</option>
                   <option value="DISPUTED">Dispute this receipt</option>
                 </select>
               </label>
-              <label>Comment{decision !== 'CONFIRMED' && ' (required)'}
-                <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={4} required={decision !== 'CONFIRMED'} />
+              <label>
+                Comment{decision !== 'CONFIRMED' && ' (required)'}
+                <textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  rows={4}
+                  required={decision !== 'CONFIRMED'}
+                />
               </label>
-              <button type="submit" className="btn btn-primary">Submit response</button>
+              <button
+                type="submit"
+                className={`btn btn-primary ${submitting ? 'is-loading' : ''}`}
+                disabled={submitting}
+              >
+                {submitting ? 'Submitting…' : 'Submit response'}
+              </button>
             </form>
           </>
         )}

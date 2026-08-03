@@ -87,24 +87,22 @@ export default function LandingPage() {
 
       <section className="section-block" aria-labelledby="privacy-title">
         <h2 id="privacy-title">Privacy and worker control</h2>
-        <div className="card">
-          <p>
-            Workers choose receipt visibility. Public proof pages show service and verification
-            details that are safe to share. Customer contact details, private evidence downloads, and
-            income figures remain protected according to visibility rules and platform policy.
-          </p>
-          <p className="muted">
-            WorkProof Global is operated for pilot programmes by EmpowerEd Nexus Ltd. It does not
-            provide lending, credit decisions, escrow, or blockchain settlement.
-          </p>
-          <div className="action-row">
-            <Link to="/privacy" className="btn btn-secondary">
-              Privacy Policy
-            </Link>
-            <Link to="/terms" className="btn btn-secondary">
-              Terms of Use
-            </Link>
-          </div>
+        <p className="section-lead">
+          Workers choose receipt visibility. Public proof pages show service and verification details
+          that are safe to share. Customer contact details, private evidence downloads, and income
+          figures remain protected according to visibility rules and platform policy.
+        </p>
+        <p className="muted">
+          WorkProof Global is operated for pilot programmes by EmpowerEd Nexus Ltd. It does not
+          provide lending, credit decisions, escrow, or blockchain settlement.
+        </p>
+        <div className="action-row">
+          <Link to="/privacy" className="btn btn-secondary">
+            Privacy Policy
+          </Link>
+          <Link to="/terms" className="btn btn-secondary">
+            Terms of Use
+          </Link>
         </div>
       </section>
     </Layout>

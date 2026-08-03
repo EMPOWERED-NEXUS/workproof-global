@@ -39,11 +39,13 @@ Interactive docs: mounted only when `ENABLE_API_DOCS=true` (see `/api-docs`).
 | GET | `/receipts/:id` | WORKER (owner) |
 | PATCH | `/receipts/:id` | WORKER (draft/correction only) |
 | DELETE | `/receipts/:id` | WORKER (draft only) |
-| POST | `/receipts/:id/evidence` | WORKER — multipart file or LINK JSON |
+| POST | `/receipts/:id/evidence` | WORKER — multipart file or LINK JSON (`visibility`, HTTPS links) |
+| PATCH | `/receipts/:id/evidence/:evidenceId/visibility` | WORKER — `CUSTOMER_ONLY` \| `PUBLIC_PROOF` |
 | GET | `/receipts/:id/evidence/:evidenceId/download` | WORKER (owner) or ADMIN |
 | DELETE | `/receipts/:id/evidence/:evidenceId` | WORKER — soft-delete |
-| POST | `/receipts/:id/submit` | WORKER — requires verified email; queues customer email; raw token only in test/dev |
-| POST | `/receipts/:id/resend-verification` | WORKER — pending only; cooldown; invalidates prior request |
+| POST | `/receipts/:id/submit` | WORKER — email / share-link / in-person QR confirmation; EMAIL queues outbox |
+| POST | `/receipts/:id/resend-verification` | WORKER — pending only; cooldown; revokes unused prior tokens |
+| POST | `/receipts/:id/regenerate-confirmation` | WORKER — alias of resend for share-link / in-person QR |
 | GET | `/receipts/:id/verification-delivery` | WORKER — safe delivery status (no tokens/payloads) |
 | POST | `/receipts/:id/archive` | WORKER — sets `archivedAt`, does **not** change status |
 | POST | `/receipts/:id/unarchive` | WORKER |
@@ -69,6 +71,10 @@ Receipt numbers use PostgreSQL sequence `receipt_number_seq` → `WPG-YYYY-00000
 |--------|------|
 | GET | `/verification/:token` |
 | POST | `/verification/:token/respond` |
+| GET | `/verification/:token/evidence/:evidenceId/download` | Token-gated file download for that receipt only |
+
+No customer account required. Confirmations require `acknowledgedAccuracy: true`.
+See `docs/inclusive-confirmation.md`.
 
 ## Public proof
 
@@ -77,6 +83,8 @@ Receipt numbers use PostgreSQL sequence `receipt_number_seq` → `WPG-YYYY-00000
 | GET | `/public/receipts/:verificationCode` |
 
 Returns `proofValidity`: `VALID` | `INVALID_REVOKED` | `UNDER_DISPUTE` | `CORRECTION_REQUIRED` | `UNAVAILABLE`.
+
+Also returns `confirmationAssuranceLabel`, channel note when relevant, and only `PUBLIC_PROOF` evidence.
 
 Never exposes customer contact, private comments, IPs, or admin notes.
 

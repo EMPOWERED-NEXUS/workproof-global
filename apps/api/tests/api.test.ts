@@ -147,6 +147,7 @@ describe("WorkProof Global API", () => {
       .post(`/api/v1/verification/${token}/respond`)
       .send({
         decision: "CONFIRMED",
+        acknowledgedAccuracy: true,
         customerName: "Confirm Customer",
         comment: "Work completed satisfactorily.",
       });
@@ -157,6 +158,7 @@ describe("WorkProof Global API", () => {
       .post(`/api/v1/verification/${token}/respond`)
       .send({
         decision: "CONFIRMED",
+        acknowledgedAccuracy: true,
         customerName: "Confirm Customer",
       });
     expect(reuseRes.status).toBe(400);
@@ -186,7 +188,7 @@ describe("WorkProof Global API", () => {
     const submitRes = await agent.post(`/api/v1/receipts/${receiptId}/submit`);
     await request(app)
       .post(`/api/v1/verification/${submitRes.body.data.verificationToken}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lock Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lock Customer" });
 
     const editRes = await agent.patch(`/api/v1/receipts/${receiptId}`).send({
       serviceTitle: "Changed title",
@@ -220,7 +222,7 @@ describe("WorkProof Global API", () => {
     const submitRes = await agent.post(`/api/v1/receipts/${receiptId}/submit`);
     const confirmRes = await request(app)
       .post(`/api/v1/verification/${submitRes.body.data.verificationToken}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Private Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Private Customer" });
 
     const code = confirmRes.body.data.verificationCode as string;
     const proofRes = await request(app).get(`/api/v1/public/receipts/${code}`);
@@ -272,7 +274,7 @@ describe("WorkProof Global API", () => {
 
     await request(app)
       .post(`/api/v1/verification/${submitRes.body.data.verificationToken as string}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Filter Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Filter Customer" });
 
     const listRes = await agent.get("/api/v1/receipts?status=VERIFIED&page=1&limit=10");
     expect(listRes.status).toBe(200);

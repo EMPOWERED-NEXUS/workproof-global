@@ -73,10 +73,10 @@ describe("Wave 0B receipt lifecycle", () => {
     const [a, b] = await Promise.all([
       request(app)
         .post(`/api/v1/verification/${token}/respond`)
-        .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" }),
+        .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" }),
       request(app)
         .post(`/api/v1/verification/${token}/respond`)
-        .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" }),
+        .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" }),
     ]);
 
     const statuses = [a.status, b.status].sort();
@@ -98,7 +98,7 @@ describe("Wave 0B receipt lifecycle", () => {
         submitted.map((s) =>
           request(app)
             .post(`/api/v1/verification/${s.token}/respond`)
-            .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" }),
+            .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" }),
         ),
       );
 
@@ -140,12 +140,12 @@ describe("Wave 0B receipt lifecycle", () => {
 
     const reuseOld = await request(app)
       .post(`/api/v1/verification/${first.token}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" });
     expect(reuseOld.status).toBe(400);
 
     const confirm = await request(app)
       .post(`/api/v1/verification/${token2}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" });
     expect(confirm.status).toBe(200);
     expect(confirm.body.data.status).toBe("VERIFIED");
 
@@ -158,14 +158,16 @@ describe("Wave 0B receipt lifecycle", () => {
   it("invalidates outstanding tokens on resubmission", async () => {
     const agent = await registerWorker("invalidate@test.com");
     const first = await createAndSubmit(agent, { email: "inv@test.com" });
-    await request(app)
+    const correction = await request(app)
       .post(`/api/v1/verification/${first.token}/respond`)
       .send({
         decision: "CORRECTION_REQUESTED",
         customerName: "Lifecycle Customer",
-        comment: "Fix",
+        comment: "Please fix the work date on this receipt.",
       });
+    expect(correction.status).toBe(200);
     const second = await agent.post(`/api/v1/receipts/${first.receiptId}/submit`);
+    expect(second.status).toBe(200);
     const oldReq = await prisma.verificationRequest.findFirst({
       where: { receiptId: first.receiptId, attemptNumber: 1 },
     });
@@ -178,7 +180,7 @@ describe("Wave 0B receipt lifecycle", () => {
     const { receiptId, token } = await createAndSubmit(agent, { email: "arch@test.com" });
     await request(app)
       .post(`/api/v1/verification/${token}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" });
 
     const archived = await agent.post(`/api/v1/receipts/${receiptId}/archive`);
     expect(archived.status).toBe(200);
@@ -204,7 +206,7 @@ describe("Wave 0B receipt lifecycle", () => {
     const v = await createAndSubmit(agent, { email: "proof-v@test.com", visibility: "PUBLIC" });
     const confirmed = await request(app)
       .post(`/api/v1/verification/${v.token}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" });
     const code = confirmed.body.data.verificationCode as string;
 
     const admin = await request(app).post("/api/v1/auth/register").send({
@@ -280,7 +282,7 @@ describe("Wave 0B receipt lifecycle", () => {
     const p = await createAndSubmit(agent, { email: "proof-p@test.com", visibility: "PRIVATE" });
     const privConfirm = await request(app)
       .post(`/api/v1/verification/${p.token}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" });
     const privCode = privConfirm.body.data.verificationCode as string;
     const privProof = await request(app).get(`/api/v1/public/receipts/${privCode}`);
     expect(privProof.status).toBe(404);
@@ -292,7 +294,7 @@ describe("Wave 0B receipt lifecycle", () => {
     const { receiptId, token } = await createAndSubmit(owner, { email: "ev@test.com" });
     await request(app)
       .post(`/api/v1/verification/${token}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" });
 
     const events = await owner.get(`/api/v1/receipts/${receiptId}/events`);
     expect(events.status).toBe(200);
@@ -308,7 +310,7 @@ describe("Wave 0B receipt lifecycle", () => {
     const { receiptId, token } = await createAndSubmit(agent, { email: "dash@test.com" });
     await request(app)
       .post(`/api/v1/verification/${token}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lifecycle Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lifecycle Customer" });
 
     await prisma.user.create({
       data: {

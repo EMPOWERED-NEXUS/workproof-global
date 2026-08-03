@@ -1,10 +1,12 @@
 import { createReadStream } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { Response } from "express";
+import { detectLinkPlatform, type EvidenceVisibility } from "@workproof/shared";
 import { env } from "../config/env.js";
 import { filenameCategory, validateEvidenceLinkUrl, validateUploadBuffer } from "../lib/file-validation.js";
 import { AppError } from "../lib/errors.js";
 import { canEditReceipt } from "../lib/lifecycle.js";
+import { hashToken } from "../lib/crypto.js";
 import { prisma } from "../lib/prisma.js";
 import { buildEvidenceObjectKey, getStorageProvider } from "../storage/index.js";
 import { createAuditLog } from "./audit.service.js";
@@ -14,6 +16,8 @@ export function serializeEvidenceSafe(evidence: {
   id: string;
   type: string;
   externalUrl?: string | null;
+  linkPlatform?: string | null;
+  visibility?: string | null;
   originalFilename?: string | null;
   safeFilename?: string | null;
   mimeType?: string | null;
@@ -28,6 +32,8 @@ export function serializeEvidenceSafe(evidence: {
     id: evidence.id,
     type: evidence.type,
     description: evidence.description,
+    visibility: (evidence.visibility as EvidenceVisibility | undefined) ?? "CUSTOMER_ONLY",
+    linkPlatform: evidence.type === "LINK" ? (evidence.linkPlatform ?? null) : null,
     originalFilename: evidence.originalFilename,
     safeFilename: evidence.safeFilename,
     mimeType: evidence.mimeType,
@@ -52,11 +58,18 @@ async function assertEditableOwnedReceipt(workerId: string, receiptId: string) {
 export async function addLinkEvidence(
   workerId: string,
   receiptId: string,
-  input: { url: string; description?: string },
+  input: {
+    url: string;
+    description?: string;
+    visibility?: EvidenceVisibility;
+    linkPlatform?: string;
+  },
   ip?: string,
 ) {
   await assertEditableOwnedReceipt(workerId, receiptId);
   const externalUrl = validateEvidenceLinkUrl(input.url);
+  const visibility = input.visibility ?? "CUSTOMER_ONLY";
+  const linkPlatform = input.linkPlatform ?? detectLinkPlatform(externalUrl);
 
   const created = await prisma.evidence.create({
     data: {
@@ -64,6 +77,8 @@ export async function addLinkEvidence(
       receiptId,
       type: "LINK",
       externalUrl,
+      linkPlatform,
+      visibility,
       url: null,
       description: input.description,
       uploadedById: workerId,
@@ -99,6 +114,7 @@ export async function addFileEvidence(
   file: { buffer: Buffer; originalname: string; mimetype: string },
   description: string | undefined,
   ip?: string,
+  visibility: EvidenceVisibility = "CUSTOMER_ONLY",
 ) {
   await assertEditableOwnedReceipt(workerId, receiptId);
 
@@ -142,6 +158,7 @@ export async function addFileEvidence(
         size: validated.size,
         checksumSha256: validated.checksumSha256,
         description,
+        visibility,
         uploadedById: workerId,
         uploadedAt: new Date(),
       },
@@ -154,7 +171,7 @@ export async function addFileEvidence(
       eventType: "evidence_added",
       publicSummary: "File evidence attached.",
       ipAddress: ip,
-      metadata: { evidenceId, mimeType: validated.mimeType, size: validated.size },
+      metadata: { evidenceId, mimeType: validated.mimeType, size: validated.size, visibility },
     });
 
     await createAuditLog({
@@ -248,6 +265,83 @@ export async function downloadEvidence(
   res: Response,
 ) {
   const evidence = await authorizeEvidenceAccess(actor, receiptId, evidenceId);
+  await streamOrRedirectEvidence(evidence, res);
+}
+
+export async function updateEvidenceVisibility(
+  workerId: string,
+  receiptId: string,
+  evidenceId: string,
+  visibility: EvidenceVisibility,
+  ip?: string,
+) {
+  await assertEditableOwnedReceipt(workerId, receiptId);
+  const evidence = await prisma.evidence.findFirst({
+    where: { id: evidenceId, receiptId, deletedAt: null },
+  });
+  if (!evidence) throw AppError.notFound("Evidence not found.");
+
+  const updated = await prisma.evidence.update({
+    where: { id: evidenceId },
+    data: { visibility },
+  });
+
+  await recordReceiptEvent({
+    receiptId,
+    actorId: workerId,
+    actorType: "WORKER",
+    eventType: "evidence_visibility_updated",
+    publicSummary:
+      visibility === "PUBLIC_PROOF"
+        ? "Evidence marked visible on public proof."
+        : "Evidence limited to customer confirmation.",
+    ipAddress: ip,
+    metadata: { evidenceId, visibility },
+  });
+
+  return serializeEvidenceSafe(updated);
+}
+
+/** Customer confirmation token grants access only to evidence on that receipt. */
+export async function downloadEvidenceByConfirmationToken(
+  token: string,
+  evidenceId: string,
+  res: Response,
+) {
+  const tokenHash = hashToken(token);
+  const request = await prisma.verificationRequest.findFirst({
+    where: { tokenHash },
+    include: { receipt: true },
+  });
+  if (!request || request.invalidatedAt || request.usedAt || request.expiresAt < new Date()) {
+    throw AppError.notFound("Evidence not found.");
+  }
+  if (request.receipt.status !== "PENDING_VERIFICATION") {
+    throw AppError.notFound("Evidence not found.");
+  }
+
+  const evidence = await prisma.evidence.findFirst({
+    where: {
+      id: evidenceId,
+      receiptId: request.receiptId,
+      deletedAt: null,
+    },
+  });
+  if (!evidence || evidence.type === "LINK" || !evidence.storageKey) {
+    throw AppError.notFound("Evidence not found.");
+  }
+
+  await streamOrRedirectEvidence(evidence, res);
+}
+
+async function streamOrRedirectEvidence(
+  evidence: {
+    storageKey: string | null;
+    mimeType: string | null;
+    safeFilename: string | null;
+  },
+  res: Response,
+) {
   const storage = getStorageProvider();
 
   if (storage.name === "local") {

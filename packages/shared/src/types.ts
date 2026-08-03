@@ -20,6 +20,14 @@ export const VISIBILITY_OPTIONS = ["PRIVATE", "UNLISTED", "PUBLIC"] as const;
 export const EVIDENCE_TYPES = ["IMAGE", "DOCUMENT", "LINK"] as const;
 export const CONFIRMATION_DECISIONS = ["CONFIRMED", "CORRECTION_REQUESTED", "DISPUTED"] as const;
 export { DURATION_UNITS, type DurationUnit } from "./duration.js";
+export {
+  CONFIRMATION_METHODS,
+  EVIDENCE_VISIBILITY,
+  LINK_PLATFORMS,
+  type ConfirmationMethod,
+  type EvidenceVisibility,
+  type LinkPlatform,
+} from "./confirmation.js";
 
 export type UserRole = (typeof USER_ROLES)[number];
 export type ReceiptStatus = (typeof RECEIPT_STATUSES)[number];

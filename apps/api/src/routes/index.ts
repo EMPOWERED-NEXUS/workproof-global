@@ -11,6 +11,8 @@ import {
   receiptListQuerySchema,
   verificationRespondSchema,
   evidenceLinkSchema,
+  evidenceFileMetaSchema,
+  evidenceVisibilityUpdateSchema,
   adminUserStatusSchema,
   adminResolveDisputeSchema,
   adminRevokeSchema,
@@ -91,6 +93,8 @@ import {
   addLinkEvidence,
   removeEvidence,
   downloadEvidence,
+  downloadEvidenceByConfirmationToken,
+  updateEvidenceVisibility,
 } from "../services/evidence.service.js";
 import {
   getEmailVerificationStatus,
@@ -460,6 +464,10 @@ apiRouter.post(
         res.status(400).json({ success: false, message: "Upload failed." });
         return;
       }
+      const meta = evidenceFileMetaSchema.parse({
+        description: typeof req.body.description === "string" ? req.body.description : undefined,
+        visibility: req.body.visibility,
+      });
       const evidence = await addFileEvidence(
         req.user!.id,
         receiptId,
@@ -468,8 +476,9 @@ apiRouter.post(
           originalname: req.file.originalname,
           mimetype: req.file.mimetype,
         },
-        typeof req.body.description === "string" ? req.body.description : undefined,
+        meta.description,
         clientIp(req),
+        meta.visibility,
       );
       res.status(201).json({ success: true, data: evidence });
       return;
@@ -479,10 +488,33 @@ apiRouter.post(
     const evidence = await addLinkEvidence(
       req.user!.id,
       receiptId,
-      { url: parsed.url, description: parsed.description },
+      {
+        url: parsed.url,
+        description: parsed.description,
+        visibility: parsed.visibility,
+        linkPlatform: parsed.linkPlatform,
+      },
       clientIp(req),
     );
     res.status(201).json({ success: true, data: evidence });
+  }),
+);
+
+apiRouter.patch(
+  "/receipts/:id/evidence/:evidenceId/visibility",
+  authenticate,
+  authorize("WORKER"),
+  validateBody(evidenceVisibilityUpdateSchema),
+  asyncHandler(async (req, res) => {
+    const body = validatedBody<{ visibility: "CUSTOMER_ONLY" | "PUBLIC_PROOF" }>(req);
+    const evidence = await updateEvidenceVisibility(
+      req.user!.id,
+      param(req.params.id),
+      param(req.params.evidenceId),
+      body.visibility,
+      clientIp(req),
+    );
+    res.json({ success: true, data: evidence });
   }),
 );
 
@@ -522,6 +554,18 @@ apiRouter.post(
 
 apiRouter.post(
   "/receipts/:id/resend-verification",
+  authenticate,
+  authorize("WORKER"),
+  emailVerificationRateLimiter,
+  asyncHandler(async (req, res) => {
+    const result = await resendCustomerVerification(req.user!.id, param(req.params.id), clientIp(req));
+    res.json({ success: true, data: result });
+  }),
+);
+
+/** Regenerate share-link or in-person QR confirmation (same handler as resend). */
+apiRouter.post(
+  "/receipts/:id/regenerate-confirmation",
   authenticate,
   authorize("WORKER"),
   emailVerificationRateLimiter,
@@ -594,6 +638,18 @@ apiRouter.post(
       userAgent: req.get("user-agent"),
     });
     res.json({ success: true, data: result });
+  }),
+);
+
+apiRouter.get(
+  "/verification/:token/evidence/:evidenceId/download",
+  verificationRateLimiter,
+  asyncHandler(async (req, res) => {
+    await downloadEvidenceByConfirmationToken(
+      param(req.params.token),
+      param(req.params.evidenceId),
+      res,
+    );
   }),
 );
 

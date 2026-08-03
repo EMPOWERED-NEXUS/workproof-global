@@ -39,7 +39,10 @@ const rawSchema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
   ENABLE_API_DOCS: z.string().optional(),
   TRUST_PROXY: z.coerce.number().int().nonnegative().default(1),
+  /** EMAIL confirmation token lifetime (hours). SHARE_LINK uses SHARE_LINK_TOKEN_EXPIRY_HOURS. */
   VERIFICATION_TOKEN_EXPIRY_HOURS: z.coerce.number().int().positive().default(72),
+  SHARE_LINK_TOKEN_EXPIRY_HOURS: z.coerce.number().int().positive().default(72),
+  IN_PERSON_QR_TOKEN_EXPIRY_MINUTES: z.coerce.number().int().positive().default(10),
   /** @deprecated Prefer LOCAL_STORAGE_DIR. Kept for local compatibility. */
   UPLOAD_DIR: z.string().default("uploads"),
   LOCAL_STORAGE_DIR: z.string().optional(),
@@ -222,6 +225,8 @@ export const env = {
   ENABLE_API_DOCS: enableApiDocs,
   TRUST_PROXY: raw.TRUST_PROXY,
   VERIFICATION_TOKEN_EXPIRY_HOURS: raw.VERIFICATION_TOKEN_EXPIRY_HOURS,
+  SHARE_LINK_TOKEN_EXPIRY_HOURS: raw.SHARE_LINK_TOKEN_EXPIRY_HOURS,
+  IN_PERSON_QR_TOKEN_EXPIRY_MINUTES: raw.IN_PERSON_QR_TOKEN_EXPIRY_MINUTES,
   UPLOAD_DIR: localStorageDir,
   LOCAL_STORAGE_DIR: localStorageDir,
   MAX_UPLOAD_SIZE_MB: raw.MAX_UPLOAD_SIZE_MB,

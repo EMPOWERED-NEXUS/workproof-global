@@ -118,10 +118,14 @@ export default function ProofPage() {
             {banner?.valid ? (
               <>
                 <p>{proof.description}</p>
-                <p className="muted">
-                  The named worker recorded this completed work and the customer confirmed it through
-                  WorkProof&apos;s private verification process.
-                </p>
+                {proof.confirmationAssuranceLabel && (
+                  <p className="confirmation-badge" role="status">
+                    {proof.confirmationAssuranceLabel}
+                  </p>
+                )}
+                {proof.confirmationChannelNote && (
+                  <p className="muted disclosure">{proof.confirmationChannelNote}</p>
+                )}
                 <dl className="detail-list">
                   {proof.receiptNumber && (
                     <div>
@@ -163,6 +167,33 @@ export default function ProofPage() {
                   )}
                 </dl>
 
+                {(proof.evidence?.length ?? 0) > 0 && (
+                  <section className="proof-evidence">
+                    <h3 className="form-section-title">Supporting evidence</h3>
+                    <p className="muted disclosure">{proof.evidenceDisclosure}</p>
+                    <ul className="evidence-list">
+                      {proof.evidence.map((item, index) => (
+                        <li key={`${item.type}-${index}`} className="evidence-item">
+                          <div>
+                            <strong>{item.linkPlatform || item.type}</strong>
+                            {item.description && <p>{item.description}</p>}
+                          </div>
+                          {item.url && (
+                            <a
+                              className="btn btn-secondary btn-sm"
+                              href={item.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Open link
+                            </a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
                 <h3 className="form-section-title" style={{ marginTop: '1.5rem' }}>
                   Verification timeline
                 </h3>
@@ -173,9 +204,10 @@ export default function ProofPage() {
                   </li>
                   <li>
                     <strong>Customer confirmation</strong>
-                    {proof.verifiedAt
-                      ? `Confirmed on ${new Date(proof.verifiedAt).toLocaleString()}.`
-                      : 'Customer confirmed through a private verification link.'}
+                    {proof.confirmationAssuranceLabel ??
+                      (proof.verifiedAt
+                        ? `Confirmed on ${new Date(proof.verifiedAt).toLocaleString()}.`
+                        : 'Customer confirmed through a secure WorkProof link.')}
                   </li>
                   <li>
                     <strong>Proof locked</strong>

@@ -242,21 +242,43 @@ export const api = {
   createReceipt: (data: object) => request<Receipt>('/receipts', { method: 'POST', body: JSON.stringify(data) }),
   updateReceipt: (id: string, data: object) => request<Receipt>(`/receipts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteReceipt: (id: string) => request<{ message: string }>(`/receipts/${id}`, { method: 'DELETE' }),
-  submitReceipt: (id: string) => request<{ verificationToken?: string; expiresAt: string; attemptNumber: number; deliveryQueued?: boolean }>(`/receipts/${id}/submit`, { method: 'POST' }),
-  resendCustomerVerification: (id: string) => request<{ expiresAt: string; attemptNumber: number; deliveryQueued?: boolean; resendCooldownSeconds?: number }>(`/receipts/${id}/resend-verification`, { method: 'POST' }),
+  submitReceipt: (id: string) => request<SubmitConfirmationResult>(`/receipts/${id}/submit`, { method: 'POST' }),
+  resendCustomerVerification: (id: string) =>
+    request<SubmitConfirmationResult & { resendCooldownSeconds?: number }>(
+      `/receipts/${id}/resend-verification`,
+      { method: 'POST' },
+    ),
+  regenerateConfirmation: (id: string) =>
+    request<SubmitConfirmationResult & { resendCooldownSeconds?: number }>(
+      `/receipts/${id}/regenerate-confirmation`,
+      { method: 'POST' },
+    ),
   getVerificationDelivery: (id: string) => request<VerificationDelivery>(`/receipts/${id}/verification-delivery`),
   archiveReceipt: (id: string) => request<Receipt>(`/receipts/${id}/archive`, { method: 'POST' }),
   unarchiveReceipt: (id: string) => request<Receipt>(`/receipts/${id}/unarchive`, { method: 'POST' }),
   getReceiptEvents: (id: string) => request<ReceiptEvent[]>(`/receipts/${id}/events`),
   addEvidenceLink: (id: string, data: object) => request<Evidence>(`/receipts/${id}/evidence`, { method: 'POST', body: JSON.stringify(data) }),
-  addEvidenceFile: async (id: string, file: File, description?: string) => {
+  addEvidenceFile: async (
+    id: string,
+    file: File,
+    description?: string,
+    visibility: EvidenceVisibility = 'CUSTOMER_ONLY',
+  ) => {
     const form = new FormData();
     form.append('file', file);
     if (description) form.append('description', description);
+    form.append('visibility', visibility);
     return request<Evidence>(`/receipts/${id}/evidence`, { method: 'POST', body: form });
   },
+  updateEvidenceVisibility: (id: string, evidenceId: string, visibility: EvidenceVisibility) =>
+    request<Evidence>(`/receipts/${id}/evidence/${evidenceId}/visibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ visibility }),
+    }),
   removeEvidence: (id: string, evidenceId: string) => request<{ message: string }>(`/receipts/${id}/evidence/${evidenceId}`, { method: 'DELETE' }),
   downloadEvidenceUrl: (id: string, evidenceId: string) => `${API_BASE}/receipts/${id}/evidence/${evidenceId}/download`,
+  customerEvidenceDownloadUrl: (token: string, evidenceId: string) =>
+    `${API_BASE}/verification/${encodeURIComponent(token)}/evidence/${evidenceId}/download`,
   getEmailVerificationStatus: () => request<EmailVerificationStatus>('/auth/email-verification-status'),
   resendEmailVerification: () => request<{ sent: boolean; cooldownSeconds: number }>('/auth/resend-email-verification', { method: 'POST' }),
   verifyEmail: (token: string) => request<{ verified: boolean; verifiedAt: string }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
@@ -292,6 +314,18 @@ export type UserRole = 'WORKER' | 'ORGANISATION' | 'ADMIN';
 export type ReceiptStatus = 'DRAFT' | 'PENDING_VERIFICATION' | 'VERIFIED' | 'CORRECTION_REQUESTED' | 'DISPUTED' | 'REVOKED' | 'ARCHIVED';
 export type ProofValidity = 'VALID' | 'INVALID_REVOKED' | 'UNDER_DISPUTE' | 'CORRECTION_REQUIRED' | 'UNAVAILABLE';
 export type DurationUnit = 'MINUTE' | 'HOUR' | 'DAY' | 'WEEK' | 'MONTH';
+export type ConfirmationMethod = 'EMAIL' | 'SHARE_LINK' | 'IN_PERSON_QR';
+export type EvidenceVisibility = 'CUSTOMER_ONLY' | 'PUBLIC_PROOF';
+
+export interface SubmitConfirmationResult {
+  confirmationMethod?: ConfirmationMethod;
+  verificationToken?: string;
+  confirmationUrl?: string;
+  shareMessage?: string;
+  expiresAt: string;
+  attemptNumber: number;
+  deliveryQueued?: boolean;
+}
 
 export interface User {
   id: string;
@@ -357,6 +391,8 @@ export interface Evidence {
   id: string;
   type: string;
   description?: string | null;
+  visibility?: EvidenceVisibility;
+  linkPlatform?: string | null;
   originalFilename?: string | null;
   safeFilename?: string | null;
   mimeType?: string | null;
@@ -365,6 +401,7 @@ export interface Evidence {
   filenameCategory?: string;
   externalUrl?: string | null;
   url?: string | null;
+  canDownload?: boolean;
 }
 
 export interface Receipt {
@@ -373,8 +410,10 @@ export interface Receipt {
   serviceTitle: string;
   description: string;
   customerName: string;
-  customerEmail: string;
+  customerEmail?: string | null;
   customerPhone?: string | null;
+  confirmationMethod?: ConfirmationMethod;
+  confirmedMethod?: ConfirmationMethod | null;
   workDate: string;
   durationMinutes?: number | null;
   durationValue?: number | null;
@@ -441,12 +480,22 @@ export interface VerificationView {
   description: string;
   workDate: string;
   workerName: string;
+  profileSlug?: string | null;
   customerName: string;
+  amount?: number | null;
+  currency?: string | null;
   skillsDemonstrated: string[];
   evidenceCount: number;
+  evidence?: Evidence[];
+  evidenceDisclosure?: string;
   status: ReceiptStatus;
   expiresAt: string;
   durationLabel?: string | null;
+  confirmationMethod?: ConfirmationMethod;
+  confirmationMethodLabel?: string;
+  confirmationAssurancePreview?: string;
+  confirmationChannelNote?: string | null;
+  privacyNote?: string;
 }
 
 export interface PublicProof {
@@ -466,11 +515,21 @@ export interface PublicProof {
   integrityHash?: string | null;
   integrityVersion?: number | null;
   status: ReceiptStatus;
+  confirmedMethod?: ConfirmationMethod | null;
+  confirmationAssuranceLabel?: string | null;
+  confirmationChannelNote?: string | null;
+  evidenceDisclosure?: string;
   revokedAt?: string | null;
   revocationReason?: string | null;
   amount?: number | null;
   currency?: string | null;
-  evidence: { type: string; description?: string | null; url?: string }[];
+  evidence: {
+    type: string;
+    description?: string | null;
+    url?: string;
+    linkPlatform?: string | null;
+  }[];
+  evidenceCount?: number;
 }
 
 export interface AdminUser {

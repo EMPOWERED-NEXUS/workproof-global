@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Layout, PageHeader, StatusBadge, Alert } from '../components/Layout';
+import { Layout, PageHeader, StatusBadge } from '../components/Layout';
 import { EmptyState, ErrorState, FilterToolbar, Skeleton } from '../components/ui';
 import { useQueryState } from '../hooks/useQueryState';
 import { api, type Receipt, type ReceiptStatus } from '../lib/api';
@@ -168,7 +168,6 @@ export default function ReceiptsPage() {
           ))}
         </div>
       )}
-      {error && <Alert tone="error" message={error} />}
     </Layout>
   );
 }

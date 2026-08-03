@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { api, type UserProfile } from '../lib/api';
+import { api, setSessionExpiredHandler, type UserProfile } from '../lib/api';
 import { AuthContext } from './auth-context';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -18,12 +18,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    setSessionExpiredHandler(() => {
+      setUser(null);
+      setLoading(false);
+    });
+    return () => setSessionExpiredHandler(null);
+  }, []);
+
+  useEffect(() => {
     void refresh();
   }, []);
 
   async function logout() {
-    await api.logout();
-    setUser(null);
+    try {
+      await api.logout();
+    } finally {
+      setUser(null);
+    }
   }
 
   return (

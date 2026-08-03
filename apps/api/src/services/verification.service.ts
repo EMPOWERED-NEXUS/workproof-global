@@ -3,7 +3,11 @@ import { hashToken } from "../lib/crypto.js";
 import { prisma } from "../lib/prisma.js";
 import { applyVerificationDecision } from "./receipt.service.js";
 import { createAuditLog } from "./audit.service.js";
-import type { VerificationRespondInput } from "@workproof/shared";
+import {
+  formatDuration,
+  type DurationUnit,
+  type VerificationRespondInput,
+} from "@workproof/shared";
 
 export async function getVerificationByToken(token: string) {
   const tokenHash = hashToken(token);
@@ -30,6 +34,14 @@ export async function getVerificationByToken(token: string) {
   }
 
   const { receipt } = request;
+  const durationValue = receipt.durationValue != null ? Number(receipt.durationValue) : null;
+  const durationUnit = (receipt.durationUnit as DurationUnit | null) ?? null;
+  const durationLabel =
+    durationValue != null && durationUnit != null
+      ? formatDuration(durationValue, durationUnit)
+      : receipt.durationMinutes != null
+        ? formatDuration(receipt.durationMinutes, "MINUTE")
+        : null;
   return {
     serviceTitle: receipt.serviceTitle,
     description: receipt.description,
@@ -41,6 +53,7 @@ export async function getVerificationByToken(token: string) {
     status: receipt.status,
     expiresAt: request.expiresAt,
     attemptNumber: request.attemptNumber,
+    durationLabel,
   };
 }
 

@@ -52,14 +52,26 @@ export type PgPoolConfigInput = {
  * Build pg.Pool configuration. When a trusted CA is supplied, use explicit SSL
  * with rejectUnauthorized: true and strip conflicting connection-string SSL params.
  */
+/**
+ * Small API tasks (0.25 vCPU / 0.5 GB) should keep a tight pool.
+ * Override with DATABASE_POOL_MAX when needed.
+ */
+export function resolvePoolMax(raw = process.env.DATABASE_POOL_MAX): number {
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 20) return parsed;
+  return 3;
+}
+
 export function buildPgPoolConfig(input: PgPoolConfigInput): PoolConfig {
   const ca = normalizeDatabaseSslCa(input.databaseSslCa ?? undefined);
+  const max = resolvePoolMax();
   if (!ca) {
-    return { connectionString: input.connectionString };
+    return { connectionString: input.connectionString, max };
   }
 
   return {
     connectionString: sanitizeDatabaseUrlForExplicitSsl(input.connectionString),
+    max,
     ssl: {
       ca,
       rejectUnauthorized: true,

@@ -4,6 +4,13 @@ import { app } from "../src/app.js";
 import { markEmailVerified } from "./helpers.js";
 
 describe("WorkProof Global API", () => {
+  it("GET /api/v1/ready aliases readiness", async () => {
+    const res = await request(app).get("/api/v1/ready");
+    expect([200, 503]).toContain(res.status);
+    expect(res.body.checks).toBeTruthy();
+    expect(res.body.checks.database).toBeTruthy();
+  });
+
   it("GET /api/v1/health returns running status", async () => {
     const res = await request(app).get("/api/v1/health");
     expect(res.status).toBe(200);

@@ -48,33 +48,37 @@ app.get("/api/v1/health", (_request, response) => {
   });
 });
 
-app.get(
-  "/api/v1/readiness",
-  asyncHandler(async (_req, res) => {
-    const databaseOk = await checkDatabaseHealth();
-    const configChecks = getReadinessConfigChecks();
-    const configOk = Object.values(configChecks).every((v) => v === "ok");
-    const ready = databaseOk && configOk;
+async function readinessHandler(
+  _req: import("express").Request,
+  res: import("express").Response,
+): Promise<void> {
+  const databaseOk = await checkDatabaseHealth();
+  const configChecks = getReadinessConfigChecks();
+  const configOk = Object.values(configChecks).every((v) => v === "ok");
+  const ready = databaseOk && configOk;
 
-    const body = {
-      success: ready,
-      message: ready ? "Service ready." : "Service unavailable.",
-      checks: {
-        database: databaseOk ? "ok" : "unavailable",
-        configuration: configOk ? "ok" : "incomplete",
-        storageProvider: env.STORAGE_PROVIDER,
-        emailProvider: env.EMAIL_PROVIDER,
-        ...configChecks,
-      },
-    };
+  const body = {
+    success: ready,
+    message: ready ? "Service ready." : "Service unavailable.",
+    checks: {
+      database: databaseOk ? "ok" : "unavailable",
+      configuration: configOk ? "ok" : "incomplete",
+      storageProvider: env.STORAGE_PROVIDER,
+      emailProvider: env.EMAIL_PROVIDER,
+      ...configChecks,
+    },
+  };
 
-    if (!ready) {
-      res.status(503).json(body);
-      return;
-    }
-    res.status(200).json(body);
-  }),
-);
+  if (!ready) {
+    res.status(503).json(body);
+    return;
+  }
+  res.status(200).json(body);
+}
+
+app.get("/api/v1/readiness", asyncHandler(readinessHandler));
+/** Alias for operators and load balancers that probe /ready. */
+app.get("/api/v1/ready", asyncHandler(readinessHandler));
 
 if (env.ENABLE_API_DOCS) {
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));

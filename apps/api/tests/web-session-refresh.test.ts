@@ -193,4 +193,18 @@ describe("web session refresh client", () => {
     expect(paths.filter((p) => p.includes("/auth/refresh"))).toHaveLength(1);
     expect(paths.filter((p) => p.includes("/receipts"))).toHaveLength(2);
   });
+
+  it("network failure during refresh does not clear the session", async () => {
+    const onExpired = vi.fn();
+    setSessionExpiredHandler(onExpired);
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, { success: false, message: "Authentication required." }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    await expect(api.listReceipts()).rejects.toMatchObject({
+      name: "NetworkError",
+    });
+    expect(onExpired).not.toHaveBeenCalled();
+  });
 });

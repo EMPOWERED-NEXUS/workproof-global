@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
@@ -25,10 +25,20 @@ import PrivacyPage, {
 } from './pages/LegalPages';
 import NotFoundPage from './pages/NotFoundPage';
 
+/** Amplify/S3 may 301 SPA paths to a trailing slash; normalize for React Router. */
+function StripTrailingSlash() {
+  const { pathname, search, hash } = useLocation();
+  if (pathname.length > 1 && pathname.endsWith('/')) {
+    return <Navigate to={`${pathname.slice(0, -1)}${search}${hash}`} replace />;
+  }
+  return null;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <StripTrailingSlash />
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />

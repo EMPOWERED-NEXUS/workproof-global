@@ -49,6 +49,14 @@ enum ConfirmationDecision {
   DISPUTED
 }
 
+enum DurationUnit {
+  MINUTE
+  HOUR
+  DAY
+  WEEK
+  MONTH
+}
+
 enum DisputeStatus {
   OPEN
   RESOLVED
@@ -195,7 +203,10 @@ model WorkReceipt {
   serviceTitle       String        @map("service_title")
   description        String
   workDate           DateTime      @map("work_date") @db.Date
+  /// Legacy minutes field retained for compatibility. Prefer durationValue + durationUnit.
   durationMinutes    Int?          @map("duration_minutes")
+  durationValue      Decimal?      @map("duration_value") @db.Decimal(10, 2)
+  durationUnit       DurationUnit? @map("duration_unit")
   amount             Decimal?      @db.Decimal(12, 2)
   currency           String        @default("XAF")
   skillsDemonstrated String[]      @default([]) @map("skills_demonstrated")

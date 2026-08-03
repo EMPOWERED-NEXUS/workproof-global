@@ -214,10 +214,10 @@ async function tick(): Promise<void> {
   try {
     await processPendingEmailJobs(10);
   } catch (error) {
-    console.error(
-      "[email:dispatcher] tick failed",
-      error instanceof Error ? error.message : "unknown",
-    );
+    // Structured log only — never spin tighter than the configured poll interval.
+    logger.warn("email_dispatcher_tick_failed", {
+      message: error instanceof Error ? error.message.slice(0, 240) : "unknown",
+    });
   } finally {
     running = false;
   }

@@ -110,7 +110,8 @@ describe("database TLS CA configuration", () => {
     const connectionString =
       "postgresql://workproof:workproof_dev_password@localhost:5434/workproof_test?schema=public";
     const config = buildPgPoolConfig({ connectionString });
-    expect(config).toEqual({ connectionString });
+    expect(config.connectionString).toBe(connectionString);
+    expect(config.max).toBe(3);
     expect(config.ssl).toBeUndefined();
   });
 

@@ -72,7 +72,13 @@
 ## Customer verification email
 
 - Built only from trusted `WEB_APP_URL` (never from user-supplied redirect origins)
-- Raw customer tokens are not returned to production browser clients (`ALLOW_DEV_VERIFICATION_TOKEN` for local/test only)
+- Channels: `EMAIL`, `SHARE_LINK`, `IN_PERSON_QR` (`docs/inclusive-confirmation.md`)
+- Raw customer tokens are hashed only; EMAIL channel does not return raw tokens in production (`ALLOW_DEV_VERIFICATION_TOKEN` for local/test only)
+- SHARE_LINK / IN_PERSON_QR return the confirmation URL to the authenticated worker for sharing/display
+- Optional WhatsApp numbers are browser-local only and must never be persisted
+- Request logs redact `/verification/:token` paths
+- Public proof shows accurate channel assurance labels and never implies verified phone/WhatsApp ownership
+- Evidence defaults to `CUSTOMER_ONLY`; public proof shows only `PUBLIC_PROOF` (`docs/evidence-policy.md`)
 - Outbox payloads encrypted with `EMAIL_PAYLOAD_ENCRYPTION_KEY` (must not reuse JWT secret)
 - Console email provider forbidden in production
 

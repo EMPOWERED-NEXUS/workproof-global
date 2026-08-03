@@ -2,7 +2,7 @@
 
 ## Overview
 
-WorkProof Global is an npm workspaces monorepo delivering a worker-owned proof-of-work platform. Workers declare completed jobs, attach evidence, and send secure verification links to customers. Confirmed receipts are locked with an integrity hash and optional public verification code.
+WorkProof Global is an npm workspaces monorepo delivering a worker-owned proof-of-work platform. Workers declare completed jobs, attach supporting evidence, and invite customers to confirm through email, a secure share link (for example WhatsApp), or a short-lived in-person QR. Confirmed receipts are locked with an integrity hash and optional public verification code. Evidence supports a claim but never verifies a receipt on its own.
 
 ## Packages
 
@@ -41,7 +41,9 @@ Shared Zod schemas and TypeScript types used by API validation.
 
 ## Data model
 
-Core entities: `User` (incl. `emailVerifiedAt`), `RefreshToken`, `EmailVerificationToken`, `EmailOutbox`, `WorkerProfile`, `Organisation`, `WorkReceipt`, `Evidence` (private storage keys / `externalUrl` for LINK; legacy `url` retained for migration safety only), `VerificationRequest` (1:N attempts), `Confirmation` (1:N history), `Dispute`, `ReceiptEvent`, `AuditLog`.
+Core entities: `User` (incl. `emailVerifiedAt`), `RefreshToken`, `EmailVerificationToken`, `EmailOutbox`, `WorkerProfile`, `Organisation`, `WorkReceipt` (incl. `confirmationMethod` / `confirmedMethod`), `Evidence` (private storage keys / `externalUrl` for LINK, `visibility`, `linkPlatform`; legacy `url` retained for migration safety only), `VerificationRequest` (1:N attempts, per-method TTL), `Confirmation` (1:N history + method), `Dispute`, `ReceiptEvent`, `AuditLog`.
+
+Inclusive confirmation details: `docs/inclusive-confirmation.md`. Evidence policy: `docs/evidence-policy.md`.
 
 ### Evidence storage (Wave 0C)
 

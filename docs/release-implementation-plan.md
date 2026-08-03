@@ -29,6 +29,8 @@
 | DEC-05 | Do **not** rewrite Git history for generated Prisma binaries |
 | DEC-06 | Account deletion will **pseudonymise** minimum verified-proof integrity records |
 | DEC-07 | Public registration creates **WORKER** only (Terms + Privacy required) |
+| DEC-08 | Inclusive confirmation: EMAIL / SHARE_LINK / IN_PERSON_QR; evidence ≠ confirmation |
+| DEC-09 | Manual WhatsApp share does **not** assert verified phone or WhatsApp identity |
 
 ---
 

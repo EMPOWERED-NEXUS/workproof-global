@@ -1,5 +1,14 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
 
+/** Auth endpoints that must never trigger a session refresh attempt. */
+const NO_REFRESH_PATHS = new Set([
+  '/auth/login',
+  '/auth/register',
+  '/auth/refresh',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+]);
+
 export interface ApiSuccess<T> {
   success: true;
   data: T;
@@ -20,9 +29,62 @@ export class ApiRequestError extends Error {
   }
 }
 
+export const SESSION_EXPIRED_MESSAGE = 'Your session expired. Please sign in again.';
+
+type SessionExpiredHandler = () => void;
+
+let sessionExpiredHandler: SessionExpiredHandler | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
+
+/** Register a callback invoked when cookie refresh fails (clears cached auth). */
+export function setSessionExpiredHandler(handler: SessionExpiredHandler | null): void {
+  sessionExpiredHandler = handler;
+}
+
+function normalizePath(path: string): string {
+  const bare = path.split('?')[0] ?? path;
+  return bare.endsWith('/') && bare.length > 1 ? bare.slice(0, -1) : bare;
+}
+
+function canAttemptRefresh(path: string): boolean {
+  return !NO_REFRESH_PATHS.has(normalizePath(path));
+}
+
+function notifySessionExpired(): void {
+  sessionExpiredHandler?.();
+}
+
+async function refreshAccessSession(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      let body: { success?: boolean } | null = null;
+      try {
+        body = (await res.json()) as { success?: boolean };
+      } catch {
+        body = null;
+      }
+      return res.ok && body?.success === true;
+    } catch {
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
+  hasRetried = false,
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -33,6 +95,23 @@ async function request<T>(
     },
   });
 
+  if (res.status === 401 && !hasRetried && canAttemptRefresh(path)) {
+    // Drain the error body so the connection can be reused cleanly.
+    try {
+      await res.json();
+    } catch {
+      /* ignore */
+    }
+
+    const refreshed = await refreshAccessSession();
+    if (refreshed) {
+      return request<T>(path, options, true);
+    }
+
+    notifySessionExpired();
+    throw new ApiRequestError(SESSION_EXPIRED_MESSAGE);
+  }
+
   const body = (await res.json()) as ApiSuccess<T> | (ApiError & { code?: string });
   if (!res.ok || !body.success) {
     const err = body as ApiError & { code?: string };
@@ -40,6 +119,17 @@ async function request<T>(
   }
   return (body as ApiSuccess<T>).data;
 }
+
+/** Test-only helpers to reset refresh orchestration state between cases. */
+export const __sessionRefreshTestUtils = {
+  reset(): void {
+    refreshInFlight = null;
+    sessionExpiredHandler = null;
+  },
+  getRefreshInFlight(): Promise<boolean> | null {
+    return refreshInFlight;
+  },
+};
 
 export const api = {
   register: (data: object) => request<{ user: User; token: string }>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),

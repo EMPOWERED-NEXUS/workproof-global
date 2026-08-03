@@ -12,7 +12,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const sessionExpired = (location.state as { reason?: string } | null)?.reason === 'session';
+  const locationState = location.state as { reason?: string; from?: string } | null;
+  const sessionExpired = locationState?.reason === 'session';
+  const returnTo =
+    locationState?.from && locationState.from.startsWith('/') && !locationState.from.startsWith('//')
+      ? locationState.from
+      : '/dashboard';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -21,7 +26,7 @@ export default function LoginPage() {
     try {
       await api.login({ email, password });
       await refresh();
-      navigate('/dashboard');
+      navigate(returnTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

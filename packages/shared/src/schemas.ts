@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { durationUnitSchema, durationValueSchema } from "./duration.js";
+import {
+  confirmationMethodSchema,
+  detectLinkPlatform,
+  evidenceVisibilitySchema,
+  MAX_EVIDENCE_URL_LENGTH,
+} from "./confirmation.js";
 
 const passwordSchema = z
   .string()
@@ -70,8 +76,12 @@ export const profileUpdateSchema = z.object({
 
 const receiptFieldsSchema = z.object({
   customerName: z.string().min(2).max(120),
-  customerEmail: z.string().email(),
+  customerEmail: z
+    .string()
+    .email("Enter a valid email address. Any working email works — Gmail is not required.")
+    .nullish(),
   customerPhone: z.string().max(30).optional(),
+  confirmationMethod: confirmationMethodSchema.default("EMAIL"),
   serviceTitle: z.string().min(2).max(200),
   description: z.string().min(10).max(5000),
   workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -101,9 +111,47 @@ function refineDurationPair<T extends { durationValue?: number | null; durationU
   }
 }
 
-export const receiptCreateSchema = receiptFieldsSchema.superRefine(refineDurationPair);
+function refineConfirmationEmail<
+  T extends {
+    confirmationMethod?: string | null;
+    customerEmail?: string | null;
+  },
+>(data: T, ctx: z.RefinementCtx) {
+  const method = data.confirmationMethod ?? "EMAIL";
+  if (method === "EMAIL") {
+    if (!data.customerEmail || !String(data.customerEmail).trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Customer email is required for email confirmation.",
+        path: ["customerEmail"],
+      });
+    }
+  }
+}
 
-export const receiptUpdateSchema = receiptFieldsSchema.partial().superRefine(refineDurationPair);
+export const receiptCreateSchema = receiptFieldsSchema
+  .superRefine(refineDurationPair)
+  .superRefine(refineConfirmationEmail);
+
+export const receiptUpdateSchema = receiptFieldsSchema
+  .partial()
+  .superRefine(refineDurationPair)
+  .superRefine((data, ctx) => {
+    // When method is explicitly EMAIL, or email is cleared while method stays EMAIL on server — validated in service too.
+    if (data.confirmationMethod === "EMAIL" && data.customerEmail === null) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Customer email is required for email confirmation.",
+        path: ["customerEmail"],
+      });
+    }
+    if (data.confirmationMethod === "EMAIL" && data.customerEmail !== undefined) {
+      refineConfirmationEmail(
+        { confirmationMethod: "EMAIL", customerEmail: data.customerEmail },
+        ctx,
+      );
+    }
+  });
 
 export const receiptListQuerySchema = z.object({
   status: z
@@ -127,18 +175,100 @@ export const receiptListQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
-export const verificationRespondSchema = z.object({
-  decision: z.enum(["CONFIRMED", "CORRECTION_REQUESTED", "DISPUTED"]),
-  customerName: z.string().min(2).max(120),
-  comment: z.string().max(2000).optional(),
-  reason: z.string().max(500).optional(),
-  description: z.string().max(5000).optional(),
+export const verificationRespondSchema = z
+  .object({
+    decision: z.enum(["CONFIRMED", "CORRECTION_REQUESTED", "DISPUTED"]),
+    customerName: z.string().min(2).max(120),
+    comment: z.string().max(2000).optional(),
+    reason: z.string().max(500).optional(),
+    description: z.string().max(5000).optional(),
+    /** Required when confirming — locks the receipt as portable proof. */
+    acknowledgedAccuracy: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.decision === "CONFIRMED" && data.acknowledgedAccuracy !== true) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Confirm that you reviewed these work details and they are accurate.",
+        path: ["acknowledgedAccuracy"],
+      });
+    }
+    if (data.decision === "CORRECTION_REQUESTED") {
+      const reason = (data.reason ?? data.comment ?? data.description ?? "").trim();
+      if (reason.length < 5) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Please describe the correction needed.",
+          path: ["comment"],
+        });
+      }
+    }
+  });
+
+const dangerousUrlPattern = /[\u0000-\u001F\u007F]/;
+
+export const evidenceLinkSchema = z
+  .object({
+    type: z.enum(["LINK"]),
+    url: z.string().min(8).max(MAX_EVIDENCE_URL_LENGTH),
+    description: z.string().max(500).optional(),
+    visibility: evidenceVisibilitySchema.default("CUSTOMER_ONLY"),
+    linkPlatform: z.string().max(40).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (dangerousUrlPattern.test(data.url)) {
+      ctx.addIssue({ code: "custom", message: "URL contains invalid characters.", path: ["url"] });
+      return;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(data.url.trim());
+    } catch {
+      ctx.addIssue({ code: "custom", message: "Invalid evidence URL.", path: ["url"] });
+      return;
+    }
+    if (parsed.protocol !== "https:") {
+      ctx.addIssue({
+        code: "custom",
+        message: "Only HTTPS links are allowed for evidence.",
+        path: ["url"],
+      });
+    }
+    if (parsed.username || parsed.password) {
+      ctx.addIssue({
+        code: "custom",
+        message: "URLs must not include credentials.",
+        path: ["url"],
+      });
+    }
+    const lower = parsed.protocol.toLowerCase();
+    if (
+      lower.startsWith("javascript:") ||
+      lower.startsWith("data:") ||
+      lower.startsWith("file:") ||
+      lower.startsWith("blob:")
+    ) {
+      ctx.addIssue({ code: "custom", message: "Unsupported URL protocol.", path: ["url"] });
+    }
+  })
+  .transform((data) => {
+    const normalized = new URL(data.url.trim());
+    normalized.hash = "";
+    const externalUrl = normalized.toString();
+    return {
+      ...data,
+      url: externalUrl,
+      linkPlatform: data.linkPlatform ?? detectLinkPlatform(externalUrl),
+    };
+  });
+
+export const evidenceFileMetaSchema = z.object({
+  description: z.string().max(500).optional(),
+  visibility: evidenceVisibilitySchema.default("CUSTOMER_ONLY"),
 });
 
-export const evidenceLinkSchema = z.object({
-  type: z.enum(["LINK"]),
-  url: z.string().url(),
-  description: z.string().max(500).optional(),
+export const evidenceVisibilityUpdateSchema = z.object({
+  visibility: evidenceVisibilitySchema,
 });
 
 export const adminUserStatusSchema = z.object({
@@ -163,6 +293,7 @@ export type ReceiptCreateInput = z.infer<typeof receiptCreateSchema>;
 export type ReceiptUpdateInput = z.infer<typeof receiptUpdateSchema>;
 export type ReceiptListQueryInput = z.infer<typeof receiptListQuerySchema>;
 export type VerificationRespondInput = z.infer<typeof verificationRespondSchema>;
+export type EvidenceLinkInput = z.infer<typeof evidenceLinkSchema>;
 export type AdminResolveDisputeInput = z.infer<typeof adminResolveDisputeSchema>;
 export type AdminRevokeInput = z.infer<typeof adminRevokeSchema>;
 export type AdminUserListQueryInput = z.infer<typeof adminUserListQuerySchema>;

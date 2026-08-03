@@ -16,9 +16,17 @@ function validityBanner(validity: ProofValidity): {
     case 'INVALID_REVOKED':
       return { tone: 'error', message: 'Revoked. This is not valid proof.', valid: false };
     case 'UNDER_DISPUTE':
-      return { tone: 'info', message: 'Disputed. Verification is under review and must not be treated as confirmed.', valid: false };
+      return {
+        tone: 'info',
+        message: 'Disputed. Verification is under review and must not be treated as confirmed.',
+        valid: false,
+      };
     case 'CORRECTION_REQUIRED':
-      return { tone: 'info', message: 'Correction requested. Proof is temporarily unavailable.', valid: false };
+      return {
+        tone: 'info',
+        message: 'Correction requested. Proof is temporarily unavailable.',
+        valid: false,
+      };
     default:
       return { tone: 'error', message: 'Proof unavailable.', valid: false };
   }
@@ -84,8 +92,8 @@ export default function ProofPage() {
               <>
                 <p>{proof.description}</p>
                 <p className="muted">
-                  This page confirms that the named worker recorded this completed work and the customer
-                  confirmed it through WorkProof&apos;s private verification process.
+                  The named worker recorded this completed work and the customer confirmed it through
+                  WorkProof&apos;s private verification process.
                 </p>
                 <dl className="detail-list">
                   {proof.receiptNumber && (
@@ -100,7 +108,7 @@ export default function ProofPage() {
                   </div>
                   {proof.verifiedAt && (
                     <div>
-                      <dt>Verified</dt>
+                      <dt>Customer confirmed</dt>
                       <dd>{new Date(proof.verifiedAt).toLocaleString()}</dd>
                     </div>
                   )}
@@ -121,16 +129,50 @@ export default function ProofPage() {
                     </div>
                   )}
                 </dl>
+
+                <h3 className="form-section-title" style={{ marginTop: '1.5rem' }}>
+                  Verification timeline
+                </h3>
+                <ol className="proof-timeline">
+                  <li>
+                    <strong>Work recorded</strong>
+                    Worker created this Verified Work Receipt for completed service.
+                  </li>
+                  <li>
+                    <strong>Customer confirmation</strong>
+                    {proof.verifiedAt
+                      ? `Confirmed on ${new Date(proof.verifiedAt).toLocaleString()}.`
+                      : 'Customer confirmed through a private verification link.'}
+                  </li>
+                  <li>
+                    <strong>Proof locked</strong>
+                    Integrity hash issued for portable sharing.
+                  </li>
+                </ol>
+
                 <div className="proof-actions">
                   <CopyButton value={proofUrl} />
-                  <ShareButton title={`WorkProof: ${proof.serviceTitle}`} text="Verified Work Receipt" url={proofUrl} />
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.print()}>
+                  <ShareButton
+                    title={`WorkProof: ${proof.serviceTitle}`}
+                    text="Verified Work Receipt"
+                    url={proofUrl}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => window.print()}
+                  >
                     Print / Save as PDF
                   </button>
                 </div>
                 {qrDataUrl && (
                   <div className="proof-qr">
-                    <img src={qrDataUrl} alt="QR code linking to this public proof page" width={180} height={180} />
+                    <img
+                      src={qrDataUrl}
+                      alt="QR code linking to this public proof page"
+                      width={180}
+                      height={180}
+                    />
                     <p className="muted">Scan to open the canonical proof URL</p>
                   </div>
                 )}
@@ -166,8 +208,9 @@ export default function ProofPage() {
               </dl>
             )}
             <p className="disclaimer">
-              This public view is consent-safe. Customer contact details and private audit data are never
-              shown. WorkProof Global is not a lending, credit-scoring, marketplace, or payment service.
+              This public view is consent-safe. Customer contact details and private audit data are
+              never shown. WorkProof Global is not a lending, credit-scoring, marketplace, or payment
+              service.
             </p>
           </article>
         )}

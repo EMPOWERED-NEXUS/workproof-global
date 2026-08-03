@@ -6,6 +6,10 @@ import { OnboardingChecklist, Skeleton, type ChecklistItem } from '../components
 import { useAuth } from '../hooks/use-auth';
 import { api, formatXaf, type WorkerDashboard, type WorkerProfile } from '../lib/api';
 
+function nextStepFor(checklist: ChecklistItem[]): ChecklistItem | undefined {
+  return checklist.find((item) => !item.done);
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const location = useLocation();
@@ -88,10 +92,14 @@ export default function DashboardPage() {
     },
   ];
   const showOnboarding = checklist.some((c) => !c.done);
+  const nextStep = nextStepFor(checklist);
 
   return (
     <Layout>
+      {/* 1. Account / verification alert */}
       <EmailVerificationBanner />
+
+      {/* 2. Welcome and primary action */}
       <PageHeader
         title={`Welcome, ${user?.fullName}`}
         subtitle="Your verified work portfolio at a glance"
@@ -106,37 +114,52 @@ export default function DashboardPage() {
       {loading && <Skeleton rows={4} />}
       {!loading && data && (
         <>
+          {/* 3. Onboarding progress */}
           {showOnboarding && <OnboardingChecklist items={checklist} />}
-          <div className="stat-grid">
-            <div className="stat-card">
-              <span>Total receipts</span>
-              <strong>{data.totalReceipts}</strong>
+
+          {/* 4. Portfolio metrics */}
+          <section aria-labelledby="metrics-title">
+            <div className="section-header">
+              <h2 id="metrics-title">Portfolio</h2>
             </div>
-            <div className="stat-card">
-              <span>Verified</span>
-              <strong>{data.verifiedReceipts}</strong>
+            <div className="stat-grid">
+              <div className="stat-card">
+                <span>Total receipts</span>
+                <strong>{data.totalReceipts}</strong>
+              </div>
+              <div className="stat-card">
+                <span>Verified</span>
+                <strong>{data.verifiedReceipts}</strong>
+              </div>
+              <div className="stat-card">
+                <span>Pending</span>
+                <strong>{data.pendingReceipts}</strong>
+              </div>
+              <div className="stat-card">
+                <span>Verification rate</span>
+                <strong>{data.verificationRate}%</strong>
+              </div>
+              <div className="stat-card">
+                <span>Repeat customers</span>
+                <strong>{data.repeatCustomerCount}</strong>
+              </div>
+              <div className="stat-card">
+                <span>Verified income</span>
+                <strong>{formatXaf(data.totalVerifiedIncome)}</strong>
+              </div>
             </div>
-            <div className="stat-card">
-              <span>Pending</span>
-              <strong>{data.pendingReceipts}</strong>
+          </section>
+
+          {/* 5. Recent activity */}
+          <section className="card section-card" aria-labelledby="recent-title">
+            <div className="section-header">
+              <h2 id="recent-title">Recent activity</h2>
+              <Link to="/receipts" className="btn btn-quiet btn-sm">
+                View all
+              </Link>
             </div>
-            <div className="stat-card">
-              <span>Verification rate</span>
-              <strong>{data.verificationRate}%</strong>
-            </div>
-            <div className="stat-card">
-              <span>Repeat customers</span>
-              <strong>{data.repeatCustomerCount}</strong>
-            </div>
-            <div className="stat-card">
-              <span>Verified income</span>
-              <strong>{formatXaf(data.totalVerifiedIncome)}</strong>
-            </div>
-          </div>
-          <section className="card section-card">
-            <h2>Recent receipts</h2>
             {data.recentReceipts.length === 0 ? (
-              <p>
+              <p className="muted">
                 No receipts yet.{' '}
                 <Link to="/receipts/new">Create your first Verified Work Receipt</Link>.
               </p>
@@ -151,6 +174,21 @@ export default function DashboardPage() {
               </ul>
             )}
           </section>
+
+          {/* 6. Helpful next step */}
+          {nextStep && (
+            <aside className="next-step" aria-labelledby="next-step-title">
+              <div>
+                <h2 id="next-step-title">Next step</h2>
+                <p>{nextStep.label}</p>
+              </div>
+              {nextStep.href && (
+                <Link to={nextStep.href} className="btn btn-secondary">
+                  Continue
+                </Link>
+              )}
+            </aside>
+          )}
         </>
       )}
     </Layout>

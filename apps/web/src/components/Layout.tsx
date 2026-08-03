@@ -123,13 +123,15 @@ export function PageHeader({
   title,
   subtitle,
   action,
+  compact = false,
 }: {
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <div className="page-header">
+    <div className={`page-header${compact ? ' compact' : ''}`}>
       <div>
         <h1>{title}</h1>
         {subtitle && <p className="subtitle">{subtitle}</p>}

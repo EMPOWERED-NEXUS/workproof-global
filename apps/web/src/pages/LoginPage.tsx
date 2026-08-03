@@ -21,6 +21,7 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError('');
     try {
@@ -28,7 +29,7 @@ export default function LoginPage() {
       await refresh();
       navigate(returnTo);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Sign in failed. Check your email and password.');
     } finally {
       setLoading(false);
     }
@@ -36,31 +37,49 @@ export default function LoginPage() {
 
   return (
     <Layout>
-      <div className="auth-card">
-        <h1>Sign in</h1>
-        <p className="subtitle">Access your WorkProof dashboard and receipts.</p>
-        {sessionExpired && (
-          <Alert tone="info" message="Your session expired. Please sign in again." />
-        )}
-        {error && <Alert tone="error" message={error} />}
-        <form onSubmit={(e) => void handleSubmit(e)} className="form-stack">
-          <label>
-            Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-          </label>
-          <label>
-            Password
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" />
-          </label>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
-        <p className="form-footer">
-          <Link to="/forgot-password">Forgot password?</Link>
-          {' · '}
-          New to WorkProof? <Link to="/register">Create your profile</Link>
-        </p>
+      <div className="auth-shell">
+        <div className="auth-card">
+          <h1>Sign in</h1>
+          <p className="subtitle">Access your dashboard, receipts, and verified proof.</p>
+          {sessionExpired && (
+            <Alert tone="info" message="Your session expired. Please sign in again." />
+          )}
+          {error && <Alert tone="error" message={error} />}
+          <form onSubmit={(e) => void handleSubmit(e)} className="form-stack">
+            <label>
+              Email
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </label>
+            <button
+              type="submit"
+              className={`btn btn-primary ${loading ? 'is-loading' : ''}`}
+              disabled={loading}
+            >
+              {loading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+          <p className="form-footer">
+            <Link to="/forgot-password">Forgot password?</Link>
+            {' · '}
+            New to WorkProof? <Link to="/register">Create your profile</Link>
+          </p>
+        </div>
       </div>
     </Layout>
   );

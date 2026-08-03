@@ -1,17 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import QRCode from 'qrcode';
 import { Layout, PageHeader, StatusBadge, Alert } from '../components/Layout';
 import { EmailVerificationBanner } from '../components/EmailVerificationBanner';
-import { ConfirmDialog, LiveRegion } from '../components/ui';
+import { ConfirmDialog, CopyButton, LiveRegion } from '../components/ui';
 import { DurationFields } from '../components/DurationFields';
+import { useAuth } from '../hooks/use-auth';
+import { openWhatsAppShare, validateLocalWhatsAppPhone } from '../lib/whatsapp';
 import {
   ApiRequestError,
   api,
   formatXaf,
+  type ConfirmationMethod,
   type DurationUnit,
   type Evidence,
+  type EvidenceVisibility,
   type Receipt,
   type ReceiptEvent,
+  type SubmitConfirmationResult,
   type VerificationDelivery,
 } from '../lib/api';
 
@@ -22,10 +28,16 @@ function formatBytes(size?: number | null) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function statusExplanation(status: string): string {
+function statusExplanation(status: string, method?: ConfirmationMethod | null): string {
   switch (status) {
     case 'PENDING_VERIFICATION':
-      return 'Awaiting customer confirmation through the private verification email link.';
+      if (method === 'SHARE_LINK') {
+        return 'Awaiting customer confirmation through the secure share link.';
+      }
+      if (method === 'IN_PERSON_QR') {
+        return 'Awaiting in-person confirmation. Show the short-lived QR while the customer is with you.';
+      }
+      return 'Awaiting customer confirmation through the secure email link.';
     case 'CORRECTION_REQUESTED':
       return 'Your customer asked for changes. Update the draft fields and resubmit.';
     case 'DISPUTED':
@@ -44,6 +56,7 @@ function statusExplanation(status: string): string {
 export default function ReceiptDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [events, setEvents] = useState<ReceiptEvent[]>([]);
   const [delivery, setDelivery] = useState<VerificationDelivery | null>(null);
@@ -55,13 +68,19 @@ export default function ReceiptDetailPage() {
   const [editing, setEditing] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkDescription, setLinkDescription] = useState('');
+  const [linkPublic, setLinkPublic] = useState(false);
   const [fileDescription, setFileDescription] = useState('');
+  const [filePublic, setFilePublic] = useState(false);
   const [confirm, setConfirm] = useState<'delete' | 'archive' | 'unarchive' | 'remove-evidence' | null>(null);
   const [pendingEvidence, setPendingEvidence] = useState<Evidence | null>(null);
+  const [confirmationResult, setConfirmationResult] = useState<SubmitConfirmationResult | null>(null);
+  const [localWhatsAppPhone, setLocalWhatsAppPhone] = useState('');
+  const [confirmQr, setConfirmQr] = useState('');
+  const [nowMs, setNowMs] = useState(Date.now());
   const [editForm, setEditForm] = useState({
     customerName: '',
     customerEmail: '',
-    customerPhone: '',
+    confirmationMethod: 'EMAIL' as ConfirmationMethod,
     serviceTitle: '',
     description: '',
     workDate: '',
@@ -72,6 +91,11 @@ export default function ReceiptDetailPage() {
     visibility: 'PRIVATE',
   });
 
+  const secondsRemaining = useMemo(() => {
+    if (!confirmationResult?.expiresAt) return null;
+    return Math.max(0, Math.floor((new Date(confirmationResult.expiresAt).getTime() - nowMs) / 1000));
+  }, [confirmationResult?.expiresAt, nowMs]);
+
   async function reload() {
     if (!id) return;
     const [r, e] = await Promise.all([api.getReceipt(id), api.getReceiptEvents(id)]);
@@ -79,8 +103,8 @@ export default function ReceiptDetailPage() {
     setEvents(e);
     setEditForm({
       customerName: r.customerName,
-      customerEmail: r.customerEmail,
-      customerPhone: r.customerPhone ?? '',
+      customerEmail: r.customerEmail ?? '',
+      confirmationMethod: r.confirmationMethod ?? 'EMAIL',
       serviceTitle: r.serviceTitle,
       description: r.description,
       workDate: r.workDate.slice(0, 10),
@@ -103,8 +127,26 @@ export default function ReceiptDetailPage() {
       }
     } else {
       setDelivery(null);
+      setConfirmationResult(null);
+      setConfirmQr('');
     }
   }
+
+  useEffect(() => {
+    if (!confirmationResult?.expiresAt) return;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [confirmationResult?.expiresAt]);
+
+  useEffect(() => {
+    if (!confirmationResult?.confirmationUrl || receipt?.confirmationMethod !== 'IN_PERSON_QR') {
+      setConfirmQr('');
+      return;
+    }
+    void QRCode.toDataURL(confirmationResult.confirmationUrl, { margin: 1, width: 220 })
+      .then(setConfirmQr)
+      .catch(() => setConfirmQr(''));
+  }, [confirmationResult?.confirmationUrl, receipt?.confirmationMethod]);
 
   useEffect(() => {
     if (!id) return;
@@ -132,8 +174,11 @@ export default function ReceiptDetailPage() {
     try {
       await api.updateReceipt(id, {
         customerName: editForm.customerName,
-        customerEmail: editForm.customerEmail,
-        customerPhone: editForm.customerPhone || undefined,
+        confirmationMethod: editForm.confirmationMethod,
+        customerEmail:
+          editForm.confirmationMethod === 'EMAIL'
+            ? editForm.customerEmail
+            : editForm.customerEmail || null,
         serviceTitle: editForm.serviceTitle,
         description: editForm.description,
         workDate: editForm.workDate,
@@ -166,9 +211,20 @@ export default function ReceiptDetailPage() {
     setError('');
     try {
       const result = await api.submitReceipt(id);
-      setInfo(
-        `Receipt submitted (attempt ${result.attemptNumber}). A verification email was queued for your customer.`,
-      );
+      setConfirmationResult(result);
+      if (result.confirmationMethod === 'EMAIL' || result.deliveryQueued) {
+        setInfo(
+          `Receipt submitted (attempt ${result.attemptNumber}). A confirmation email was queued for your customer.`,
+        );
+      } else if (result.confirmationMethod === 'SHARE_LINK') {
+        setInfo(
+          `Secure share link ready (attempt ${result.attemptNumber}). Copy it or open WhatsApp from this device.`,
+        );
+      } else {
+        setInfo(
+          `In-person confirmation QR ready (attempt ${result.attemptNumber}). Show it while the customer is with you.`,
+        );
+      }
       await reload();
     } catch (err) {
       if (err instanceof ApiRequestError && err.code === 'EMAIL_VERIFICATION_REQUIRED') {
@@ -185,11 +241,19 @@ export default function ReceiptDetailPage() {
     if (!id || busy) return;
     setBusy(true);
     try {
-      const result = await api.resendCustomerVerification(id);
-      setInfo(`Verification email resent (attempt ${result.attemptNumber}).`);
+      const result =
+        receipt?.confirmationMethod === 'EMAIL'
+          ? await api.resendCustomerVerification(id)
+          : await api.regenerateConfirmation(id);
+      setConfirmationResult(result);
+      setInfo(
+        receipt?.confirmationMethod === 'EMAIL'
+          ? `Confirmation email resent (attempt ${result.attemptNumber}).`
+          : `Confirmation link regenerated (attempt ${result.attemptNumber}). Previous unused links are revoked.`,
+      );
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Resend failed');
+      setError(err instanceof Error ? err.message : 'Could not regenerate confirmation link');
     } finally {
       setBusy(false);
     }
@@ -200,8 +264,10 @@ export default function ReceiptDetailPage() {
     setUploading(true);
     setError('');
     try {
-      await api.addEvidenceFile(id, fileList[0], fileDescription || undefined);
+      const visibility: EvidenceVisibility = filePublic ? 'PUBLIC_PROOF' : 'CUSTOMER_ONLY';
+      await api.addEvidenceFile(id, fileList[0], fileDescription || undefined, visibility);
       setFileDescription('');
+      setFilePublic(false);
       setInfo('Evidence uploaded.');
       await reload();
     } catch (err) {
@@ -224,15 +290,54 @@ export default function ReceiptDetailPage() {
         type: 'LINK',
         url: linkUrl,
         description: linkDescription || undefined,
+        visibility: linkPublic ? 'PUBLIC_PROOF' : 'CUSTOMER_ONLY',
       });
       setLinkUrl('');
       setLinkDescription('');
+      setLinkPublic(false);
       setInfo('Link evidence added.');
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not add link');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleToggleEvidenceVisibility(item: Evidence) {
+    if (!id || busy) return;
+    setBusy(true);
+    try {
+      const next: EvidenceVisibility =
+        item.visibility === 'PUBLIC_PROOF' ? 'CUSTOMER_ONLY' : 'PUBLIC_PROOF';
+      await api.updateEvidenceVisibility(id, item.id, next);
+      setInfo(
+        next === 'PUBLIC_PROOF'
+          ? 'Evidence will appear on public proof.'
+          : 'Evidence limited to customer confirmation.',
+      );
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update evidence visibility');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleOpenWhatsApp() {
+    if (!confirmationResult?.confirmationUrl || !receipt || !user) return;
+    try {
+      const phone = localWhatsAppPhone.trim()
+        ? validateLocalWhatsAppPhone(localWhatsAppPhone)
+        : null;
+      openWhatsAppShare({
+        customerName: receipt.customerName,
+        workerName: user.fullName,
+        confirmationUrl: confirmationResult.confirmationUrl,
+        phoneE164: phone,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid WhatsApp number');
     }
   }
 
@@ -287,7 +392,7 @@ export default function ReceiptDetailPage() {
   const editable = receipt.status === 'DRAFT' || receipt.status === 'CORRECTION_REQUESTED';
   const canArchive = !receipt.archivedAt && receipt.status !== 'DRAFT';
   const evidence = receipt.evidence ?? [];
-  const explanation = statusExplanation(receipt.status);
+  const explanation = statusExplanation(receipt.status, receipt.confirmationMethod);
 
   return (
     <Layout>
@@ -339,6 +444,22 @@ export default function ReceiptDetailPage() {
               rows={4}
             />
           </label>
+          <label>
+            Confirmation method
+            <select
+              value={editForm.confirmationMethod}
+              onChange={(e) =>
+                setEditForm({
+                  ...editForm,
+                  confirmationMethod: e.target.value as ConfirmationMethod,
+                })
+              }
+            >
+              <option value="EMAIL">Email the customer</option>
+              <option value="SHARE_LINK">Share a secure link</option>
+              <option value="IN_PERSON_QR">Confirm in person</option>
+            </select>
+          </label>
           <div className="form-row">
             <label>
               Customer name
@@ -348,24 +469,29 @@ export default function ReceiptDetailPage() {
                 required
               />
             </label>
-            <label>
-              Customer email
-              <input
-                type="email"
-                value={editForm.customerEmail}
-                onChange={(e) => setEditForm({ ...editForm, customerEmail: e.target.value })}
-                required
-              />
-            </label>
+            {editForm.confirmationMethod === 'EMAIL' ? (
+              <label>
+                Customer email
+                <input
+                  type="email"
+                  value={editForm.customerEmail}
+                  onChange={(e) => setEditForm({ ...editForm, customerEmail: e.target.value })}
+                  required
+                />
+              </label>
+            ) : (
+              <label>
+                Amount
+                <input
+                  type="number"
+                  min={0}
+                  value={editForm.amount}
+                  onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                />
+              </label>
+            )}
           </div>
-          <div className="form-row">
-            <label>
-              Customer phone
-              <input
-                value={editForm.customerPhone}
-                onChange={(e) => setEditForm({ ...editForm, customerPhone: e.target.value })}
-              />
-            </label>
+          {editForm.confirmationMethod === 'EMAIL' && (
             <label>
               Amount
               <input
@@ -375,7 +501,7 @@ export default function ReceiptDetailPage() {
                 onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
               />
             </label>
-          </div>
+          )}
           <DurationFields
             value={editForm.durationValue}
             unit={editForm.durationUnit}
@@ -474,11 +600,13 @@ export default function ReceiptDetailPage() {
                 {evidence.map((item) => (
                   <li key={item.id} className="evidence-item">
                     <div>
-                      <strong>{item.filenameCategory || item.type}</strong>
+                      <strong>{item.linkPlatform || item.filenameCategory || item.type}</strong>
                       <span className="muted">
                         {' '}
                         {item.originalFilename || item.externalUrl || 'Evidence'}
                         {item.size != null ? ` · ${formatBytes(item.size)}` : ''}
+                        {' · '}
+                        {item.visibility === 'PUBLIC_PROOF' ? 'Public proof' : 'Customer only'}
                       </span>
                       {item.description && <p>{item.description}</p>}
                     </div>
@@ -496,31 +624,47 @@ export default function ReceiptDetailPage() {
                           className="btn btn-secondary btn-sm"
                           href={item.externalUrl}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                         >
                           Open link
                         </a>
                       )}
                       {editable && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => {
-                            setPendingEvidence(item);
-                            setConfirm('remove-evidence');
-                          }}
-                        >
-                          Remove
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            disabled={busy}
+                            onClick={() => void handleToggleEvidenceVisibility(item)}
+                          >
+                            {item.visibility === 'PUBLIC_PROOF'
+                              ? 'Make customer-only'
+                              : 'Show on public proof'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => {
+                              setPendingEvidence(item);
+                              setConfirm('remove-evidence');
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </>
                       )}
                     </div>
                   </li>
                 ))}
               </ul>
             )}
+            <p className="muted disclosure">
+              Supporting evidence supports the work record but does not replace customer confirmation.
+            </p>
 
             {editable && (
               <div className="evidence-forms">
+                <h3 className="form-section-title">Add photo or document</h3>
                 <label className="file-upload">
                   Choose file (JPEG, PNG, WebP, PDF, DOCX)
                   <input
@@ -538,15 +682,24 @@ export default function ReceiptDetailPage() {
                     placeholder="Optional description"
                   />
                 </label>
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={filePublic}
+                    onChange={(e) => setFilePublic(e.target.checked)}
+                  />
+                  <span>Show on public proof (off by default — customer-only)</span>
+                </label>
                 {uploading && (
                   <p className="muted" role="status">
                     Uploading…
                   </p>
                 )}
 
+                <h3 className="form-section-title">Add social or web link</h3>
                 <form onSubmit={(e) => void handleAddLink(e)} className="form-stack">
                   <label>
-                    Link URL
+                    HTTPS link URL
                     <input
                       value={linkUrl}
                       onChange={(e) => setLinkUrl(e.target.value)}
@@ -558,8 +711,16 @@ export default function ReceiptDetailPage() {
                     Link description
                     <input value={linkDescription} onChange={(e) => setLinkDescription(e.target.value)} />
                   </label>
+                  <label className="checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={linkPublic}
+                      onChange={(e) => setLinkPublic(e.target.checked)}
+                    />
+                    <span>Show on public proof (off by default — customer-only)</span>
+                  </label>
                   <button type="submit" className="btn btn-secondary" disabled={busy}>
-                    Add link evidence
+                    Add social or web link
                   </button>
                 </form>
               </div>
@@ -568,38 +729,117 @@ export default function ReceiptDetailPage() {
         </div>
       )}
 
-      {receipt.status === 'PENDING_VERIFICATION' && delivery && (
-        <section className="card section-card" aria-live="polite">
-          <h2>Customer verification delivery</h2>
-          <dl className="detail-list">
-            <div>
-              <dt>Status</dt>
-              <dd>{delivery.status ?? '—'}</dd>
+      {receipt.status === 'PENDING_VERIFICATION' && (
+        <section className="card section-card confirmation-panel" aria-live="polite">
+          <h2>Customer confirmation</h2>
+          <p className="muted">
+            Method:{' '}
+            {receipt.confirmationMethod === 'SHARE_LINK'
+              ? 'Secure share link'
+              : receipt.confirmationMethod === 'IN_PERSON_QR'
+                ? 'In-person QR'
+                : 'Email link'}
+          </p>
+
+          {receipt.confirmationMethod === 'EMAIL' && delivery && (
+            <dl className="detail-list">
+              <div>
+                <dt>Email delivery</dt>
+                <dd>{delivery.status ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Attempt count</dt>
+                <dd>{delivery.attemptCount}</dd>
+              </div>
+              <div>
+                <dt>Sent at</dt>
+                <dd>{delivery.sentAt ? new Date(delivery.sentAt).toLocaleString() : '—'}</dd>
+              </div>
+            </dl>
+          )}
+
+          {confirmationResult?.confirmationUrl && (
+            <div className="share-confirmation">
+              <label>
+                Secure confirmation URL
+                <input readOnly value={confirmationResult.confirmationUrl} />
+              </label>
+              <div className="action-row">
+                <CopyButton value={confirmationResult.confirmationUrl} label="Copy secure link" />
+                {receipt.confirmationMethod === 'SHARE_LINK' && (
+                  <button type="button" className="btn btn-primary" onClick={handleOpenWhatsApp}>
+                    Open WhatsApp
+                  </button>
+                )}
+                {receipt.confirmationMethod === 'IN_PERSON_QR' && (
+                  <a
+                    className="btn btn-primary"
+                    href={confirmationResult.confirmationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Open confirmation on this device
+                  </a>
+                )}
+              </div>
+              {receipt.confirmationMethod === 'SHARE_LINK' && (
+                <label>
+                  Optional WhatsApp number (stays in this browser only)
+                  <input
+                    value={localWhatsAppPhone}
+                    onChange={(e) => setLocalWhatsAppPhone(e.target.value)}
+                    placeholder="+2376xxxxxxx"
+                    inputMode="tel"
+                    autoComplete="off"
+                  />
+                  <span className="field-hint">
+                    International format. WorkProof does not store or receive this number.
+                  </span>
+                </label>
+              )}
+              {receipt.confirmationMethod === 'IN_PERSON_QR' && confirmQr && (
+                <div className="proof-qr in-person-qr">
+                  <img
+                    src={confirmQr}
+                    alt="Short-lived confirmation QR code"
+                    width={220}
+                    height={220}
+                  />
+                  <p className="muted" role="status">
+                    {secondsRemaining == null
+                      ? 'QR ready'
+                      : secondsRemaining > 0
+                        ? `Expires in ${Math.floor(secondsRemaining / 60)}m ${secondsRemaining % 60}s`
+                        : 'QR expired — regenerate a new code'}
+                  </p>
+                </div>
+              )}
             </div>
-            <div>
-              <dt>Attempt count</dt>
-              <dd>{delivery.attemptCount}</dd>
-            </div>
-            <div>
-              <dt>Last attempted</dt>
-              <dd>
-                {delivery.lastAttemptedAt ? new Date(delivery.lastAttemptedAt).toLocaleString() : '—'}
-              </dd>
-            </div>
-            <div>
-              <dt>Sent at</dt>
-              <dd>{delivery.sentAt ? new Date(delivery.sentAt).toLocaleString() : '—'}</dd>
-            </div>
-          </dl>
+          )}
+
+          {!confirmationResult?.confirmationUrl && receipt.confirmationMethod !== 'EMAIL' && (
+            <p className="muted">
+              Submit or regenerate to create a fresh confirmation link. Previous unused links are
+              revoked.
+            </p>
+          )}
+
           <button
             type="button"
             className="btn btn-secondary"
-            disabled={!delivery.resendAvailable || busy}
+            disabled={
+              busy ||
+              (receipt.confirmationMethod === 'EMAIL' && delivery != null && !delivery.resendAvailable)
+            }
             onClick={() => void handleResendCustomer()}
           >
-            {delivery.resendAvailableInSeconds > 0
-              ? `Resend available in ${delivery.resendAvailableInSeconds}s`
-              : 'Resend customer verification email'}
+            {receipt.confirmationMethod === 'EMAIL'
+              ? delivery && delivery.resendAvailableInSeconds > 0
+                ? `Resend available in ${delivery.resendAvailableInSeconds}s`
+                : 'Resend customer confirmation email'
+              : secondsRemaining === 0 || !confirmationResult?.confirmationUrl
+                ? 'Regenerate confirmation link'
+                : 'Regenerate confirmation link'}
           </button>
         </section>
       )}

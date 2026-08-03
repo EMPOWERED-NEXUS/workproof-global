@@ -82,28 +82,34 @@ test.describe('public proof and duration', () => {
   });
 
   test('copy and QR encode the same proof path', async ({ page, context }) => {
+    const expectedUrl = 'https://workproof.empowerednexus.com/proof/WPG-DEMOCODE';
     await mockSignedOutPublic(page);
     await mockValidProof(page);
     await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => undefined);
     await page.goto('/proof/WPG-DEMOCODE');
     await expect(page.getByText('WorkProof verified')).toBeVisible();
 
-    await page.getByRole('button', { name: /copy link/i }).click();
-    const copied = await page.evaluate(async () => navigator.clipboard.readText());
-    expect(copied).toMatch(/\/proof\/WPG-DEMOCODE$/);
-    expect(copied.endsWith('/')).toBe(false);
+    async function assertCopyAndDecodedQrMatch() {
+      await page.getByRole('button', { name: /copy link/i }).click();
+      const copied = await page.evaluate(async () => navigator.clipboard.readText());
+      expect(copied).toBe(expectedUrl);
 
-    const qr = page.locator('.proof-qr img');
-    await expect(qr).toBeVisible();
-    const src = await qr.getAttribute('src');
-    expect(src?.startsWith('data:image/png;base64,')).toBe(true);
+      const qr = page.locator('.proof-qr img');
+      await expect(qr).toBeVisible();
+      const src = await qr.getAttribute('src');
+      expect(src?.startsWith('data:image/png;base64,')).toBe(true);
 
-    const png = PNG.sync.read(Buffer.from(src!.split(',')[1]!, 'base64'));
-    const decoded = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
-    expect(decoded, 'QR payload must decode').toBeTruthy();
-    expect(decoded!.data).toBe(copied);
-    expect(decoded!.data).toMatch(/\/proof\/WPG-DEMOCODE$/);
-    expect(decoded!.data.endsWith('/')).toBe(false);
+      const png = PNG.sync.read(Buffer.from(src!.split(',')[1]!, 'base64'));
+      const decoded = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+      expect(decoded, 'QR payload must decode').toBeTruthy();
+      expect(decoded!.data).toBe(copied);
+      expect(decoded!.data).toBe(expectedUrl);
+    }
+
+    await assertCopyAndDecodedQrMatch();
+    await page.reload();
+    await expect(page.getByText('WorkProof verified')).toBeVisible();
+    await assertCopyAndDecodedQrMatch();
   });
 
   test('temporary API failure shows retry state', async ({ page }) => {

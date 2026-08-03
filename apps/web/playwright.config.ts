@@ -22,5 +22,11 @@ export default defineConfig({
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    env: {
+      ...process.env,
+      // Bake the production canonical origin into the preview build so copy/QR assertions
+      // match https://workproof.empowerednexus.com/proof/{publicCode}.
+      VITE_PUBLIC_WEB_URL: 'https://workproof.empowerednexus.com',
+    },
   },
 });

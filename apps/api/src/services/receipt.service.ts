@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { ConfirmationDecision, ReceiptStatus, Visibility } from "../../generated/prisma/index.js";
+import type {
+  ConfirmationDecision,
+  DurationUnit,
+  ReceiptStatus,
+  Visibility,
+} from "../../generated/prisma/index.js";
 import { AppError } from "../lib/errors.js";
 import {
   generateVerificationCode,
@@ -27,22 +32,58 @@ import { filenameCategory } from "../lib/file-validation.js";
 import { createAuditLog } from "./audit.service.js";
 import { serializeEvidenceSafe } from "./evidence.service.js";
 import { recordReceiptEvent } from "./receipt-event.service.js";
-import type { ReceiptCreateInput, ReceiptUpdateInput } from "@workproof/shared";
+import {
+  formatDuration,
+  resolveDurationInput,
+  type DurationUnit as SharedDurationUnit,
+  type ReceiptCreateInput,
+  type ReceiptUpdateInput,
+} from "@workproof/shared";
 
 const activeEvidence = { deletedAt: null as Date | null };
+
+function mapDurationFields(input: {
+  durationValue?: number | null;
+  durationUnit?: SharedDurationUnit | null;
+  durationMinutes?: number | null;
+}) {
+  try {
+    const resolved = resolveDurationInput(input);
+    return {
+      durationValue: resolved.durationValue,
+      durationUnit: resolved.durationUnit as DurationUnit | null,
+      durationMinutes: resolved.durationMinutes,
+    };
+  } catch (error) {
+    throw AppError.badRequest(error instanceof Error ? error.message : "Invalid duration.");
+  }
+}
 
 function serializeReceipt(receipt: Record<string, unknown>) {
   const evidence = Array.isArray(receipt.evidence)
     ? (receipt.evidence as Array<Parameters<typeof serializeEvidenceSafe>[0]>).map(serializeEvidenceSafe)
     : receipt.evidence;
+  const durationValue =
+    receipt.durationValue != null ? Number(receipt.durationValue) : null;
+  const durationUnit = (receipt.durationUnit as SharedDurationUnit | null | undefined) ?? null;
+  const durationLabel =
+    durationValue != null && durationUnit != null
+      ? formatDuration(durationValue, durationUnit)
+      : receipt.durationMinutes != null
+        ? formatDuration(Number(receipt.durationMinutes), "MINUTE")
+        : null;
   return {
     ...receipt,
     evidence,
     amount: receipt.amount != null ? Number(receipt.amount) : null,
+    durationValue,
+    durationUnit,
+    durationLabel,
   };
 }
 
 export async function createReceipt(workerId: string, input: ReceiptCreateInput, ip?: string) {
+  const duration = mapDurationFields(input);
   const receipt = await prisma.workReceipt.create({
     data: {
       workerId,
@@ -52,7 +93,9 @@ export async function createReceipt(workerId: string, input: ReceiptCreateInput,
       serviceTitle: input.serviceTitle,
       description: input.description,
       workDate: new Date(input.workDate),
-      durationMinutes: input.durationMinutes,
+      durationMinutes: duration.durationMinutes,
+      durationValue: duration.durationValue,
+      durationUnit: duration.durationUnit,
       amount: input.amount,
       currency: input.currency ?? "XAF",
       skillsDemonstrated: input.skillsDemonstrated ?? [],
@@ -180,6 +223,18 @@ export async function updateReceipt(
     throw AppError.badRequest("Verified or locked receipts cannot be edited.");
   }
 
+  const durationTouched =
+    input.durationValue !== undefined ||
+    input.durationUnit !== undefined ||
+    input.durationMinutes !== undefined;
+  const duration = durationTouched
+    ? mapDurationFields({
+        durationValue: input.durationValue,
+        durationUnit: input.durationUnit,
+        durationMinutes: input.durationMinutes,
+      })
+    : null;
+
   const updated = await prisma.workReceipt.update({
     where: { id: receiptId },
     data: {
@@ -191,7 +246,13 @@ export async function updateReceipt(
       ...(input.serviceTitle !== undefined ? { serviceTitle: input.serviceTitle } : {}),
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.workDate !== undefined ? { workDate: new Date(input.workDate) } : {}),
-      ...(input.durationMinutes !== undefined ? { durationMinutes: input.durationMinutes } : {}),
+      ...(duration
+        ? {
+            durationMinutes: duration.durationMinutes,
+            durationValue: duration.durationValue,
+            durationUnit: duration.durationUnit,
+          }
+        : {}),
       ...(input.amount !== undefined ? { amount: input.amount } : {}),
       ...(input.currency !== undefined ? { currency: input.currency } : {}),
       ...(input.skillsDemonstrated !== undefined
@@ -594,6 +655,15 @@ export async function getPublicProof(verificationCode: string) {
   const showAmount = receipt.visibility === "PUBLIC" && receipt.status === "VERIFIED";
   const allowPublicLinks = receipt.visibility === "PUBLIC" || receipt.visibility === "UNLISTED";
 
+  const durationValue = receipt.durationValue != null ? Number(receipt.durationValue) : null;
+  const durationUnit = (receipt.durationUnit as SharedDurationUnit | null) ?? null;
+  const durationLabel =
+    durationValue != null && durationUnit != null
+      ? formatDuration(durationValue, durationUnit)
+      : receipt.durationMinutes != null
+        ? formatDuration(receipt.durationMinutes, "MINUTE")
+        : null;
+
   return {
     receiptNumber: receipt.receiptNumber,
     workerName: receipt.worker.fullName,
@@ -601,6 +671,9 @@ export async function getPublicProof(verificationCode: string) {
     serviceTitle: receipt.serviceTitle,
     description: receipt.description,
     workDate: receipt.workDate,
+    durationValue,
+    durationUnit,
+    durationLabel,
     skillsDemonstrated: receipt.skillsDemonstrated,
     verifiedAt: receipt.verifiedAt,
     verificationStatus: receipt.status,

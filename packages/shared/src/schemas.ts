@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { durationUnitSchema, durationValueSchema } from "./duration.js";
 
 const passwordSchema = z
   .string()
@@ -67,21 +68,42 @@ export const profileUpdateSchema = z.object({
   skills: z.array(z.string().min(1).max(80)).max(20).optional(),
 });
 
-export const receiptCreateSchema = z.object({
+const receiptFieldsSchema = z.object({
   customerName: z.string().min(2).max(120),
   customerEmail: z.string().email(),
   customerPhone: z.string().max(30).optional(),
   serviceTitle: z.string().min(2).max(200),
   description: z.string().min(10).max(5000),
   workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  durationMinutes: z.number().int().positive().max(10000).optional(),
+  /** Preferred: value + unit. Null clears duration on update. */
+  durationValue: durationValueSchema.nullish(),
+  durationUnit: durationUnitSchema.nullish(),
+  /** Legacy minutes-only input; still accepted for compatibility. */
+  durationMinutes: z.number().int().positive().max(10000).nullish(),
   amount: z.number().positive().max(999999999).optional(),
   currency: z.string().length(3).default("XAF"),
   skillsDemonstrated: z.array(z.string().min(1).max(80)).max(20).default([]),
   visibility: z.enum(["PRIVATE", "UNLISTED", "PUBLIC"]).default("PRIVATE"),
 });
 
-export const receiptUpdateSchema = receiptCreateSchema.partial();
+function refineDurationPair<T extends { durationValue?: number | null; durationUnit?: string | null }>(
+  data: T,
+  ctx: z.RefinementCtx,
+) {
+  const valuePresent = data.durationValue != null;
+  const unitPresent = data.durationUnit != null;
+  if (valuePresent !== unitPresent) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Duration value and unit must be provided together.",
+      path: valuePresent ? ["durationUnit"] : ["durationValue"],
+    });
+  }
+}
+
+export const receiptCreateSchema = receiptFieldsSchema.superRefine(refineDurationPair);
+
+export const receiptUpdateSchema = receiptFieldsSchema.partial().superRefine(refineDurationPair);
 
 export const receiptListQuerySchema = z.object({
   status: z

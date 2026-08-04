@@ -14,12 +14,13 @@ async function main() {
 
   const worker = await prisma.user.upsert({
     where: { email: "worker@workproof.test" },
-    update: {},
+    update: { emailVerifiedAt: new Date() },
     create: {
       email: "worker@workproof.test",
       passwordHash: await passwordHash("Demo123!"),
       fullName: "Amina Kouassi",
       role: "WORKER",
+      emailVerifiedAt: new Date(),
       workerProfile: {
         create: {
           profileSlug: "amina-kouassi",
@@ -36,23 +37,25 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: "admin@workproof.test" },
-    update: {},
+    update: { emailVerifiedAt: new Date() },
     create: {
       email: "admin@workproof.test",
       passwordHash: await passwordHash("Admin123!"),
       fullName: "WorkProof Admin",
       role: "ADMIN",
+      emailVerifiedAt: new Date(),
     },
   });
 
   const organisation = await prisma.user.upsert({
     where: { email: "organisation@workproof.test" },
-    update: {},
+    update: { emailVerifiedAt: new Date() },
     create: {
       email: "organisation@workproof.test",
       passwordHash: await passwordHash("Org123!"),
       fullName: "EmpowerEd Programmes",
       role: "ORGANISATION",
+      emailVerifiedAt: new Date(),
       organisation: {
         create: {
           name: "EmpowerEd Youth Skills Programme",
@@ -66,12 +69,13 @@ async function main() {
 
   const worker2 = await prisma.user.upsert({
     where: { email: "worker2@workproof.test" },
-    update: {},
+    update: { emailVerifiedAt: new Date() },
     create: {
       email: "worker2@workproof.test",
       passwordHash: await passwordHash("Demo123!"),
       fullName: "Jean Mbarga",
       role: "WORKER",
+      emailVerifiedAt: new Date(),
       workerProfile: {
         create: {
           profileSlug: "jean-mbarga",
@@ -85,6 +89,9 @@ async function main() {
 
   // Clear existing demo receipts for idempotency
   await prisma.auditLog.deleteMany({});
+  await prisma.receiptEvent.deleteMany({});
+  await prisma.emailOutbox.deleteMany({});
+  await prisma.emailVerificationToken.deleteMany({});
   await prisma.confirmation.deleteMany({});
   await prisma.dispute.deleteMany({});
   await prisma.verificationRequest.deleteMany({});
@@ -124,9 +131,10 @@ async function main() {
       evidence: {
         create: [{ type: "LINK", url: "https://example.com/photo-curtains", description: "Before/after photos" }],
       },
-      verificationRequest: {
+      verificationRequests: {
         create: {
           tokenHash: hashToken("demo-verification-token-pending"),
+          attemptNumber: 1,
           customerEmail: "patrick.demo@example.com",
           expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
         },
@@ -160,12 +168,25 @@ async function main() {
       lockedAt: new Date("2026-05-29"),
       evidence: {
         create: [
-          { type: "IMAGE", url: "/uploads/demo-dress-repair.jpg", mimeType: "image/jpeg", size: 102400, description: "Completed repair" },
+          {
+            type: "IMAGE",
+            storageProvider: "LOCAL",
+            storageKey: "seed/demo-dress-repair.jpg",
+            originalFilename: "demo-dress-repair.jpg",
+            safeFilename: "demo-dress-repair.jpg",
+            mimeType: "image/jpeg",
+            size: 102400,
+            checksumSha256: "0".repeat(64),
+            description: "Completed repair",
+            uploadedById: worker.id,
+            uploadedAt: new Date("2026-05-28"),
+          },
         ],
       },
-      confirmation: {
+      confirmations: {
         create: {
           decision: "CONFIRMED",
+          attemptNumber: 1,
           customerName: "Marie T.",
           customerEmail: "marie.demo@example.com",
           comment: "Excellent work — dress was ready on time.",
@@ -187,9 +208,10 @@ async function main() {
       status: "CORRECTION_REQUESTED",
       visibility: "PRIVATE",
       submittedAt: new Date("2026-06-02"),
-      confirmation: {
+      confirmations: {
         create: {
           decision: "CORRECTION_REQUESTED",
+          attemptNumber: 1,
           customerName: "Samuel K.",
           customerEmail: "samuel.demo@example.com",
           comment: "Two shirts need slightly shorter sleeves.",
@@ -211,9 +233,10 @@ async function main() {
       status: "DISPUTED",
       visibility: "UNLISTED",
       submittedAt: new Date("2026-05-16"),
-      confirmation: {
+      confirmations: {
         create: {
           decision: "DISPUTED",
+          attemptNumber: 1,
           customerName: "Helen D.",
           customerEmail: "helen.demo@example.com",
           comment: "Fit was not as agreed.",

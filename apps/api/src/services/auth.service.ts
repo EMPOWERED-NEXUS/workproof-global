@@ -1,8 +1,10 @@
 import bcrypt from "bcrypt";
+import { Prisma } from "../../generated/prisma/index.js";
 import { AppError } from "../lib/errors.js";
 import { slugify } from "../lib/crypto.js";
 import { prisma } from "../lib/prisma.js";
 import { createAuditLog } from "./audit.service.js";
+import { createEmailVerificationForUser } from "./email-verification.service.js";
 import type { RegisterInput } from "@workproof/shared";
 
 const SALT_ROUNDS = 12;
@@ -15,17 +17,21 @@ export async function registerUser(input: RegisterInput, ipAddress?: string) {
 
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
 
-  const user = await prisma.$transaction(async (tx) => {
-    const created = await tx.user.create({
-      data: {
-        email: input.email,
-        passwordHash,
-        fullName: input.fullName,
-        role: input.role,
-      },
-    });
+  let user;
+  try {
+    user = await prisma.$transaction(async (tx) => {
+      const acceptedAt = new Date();
+      const created = await tx.user.create({
+        data: {
+          email: input.email,
+          passwordHash,
+          fullName: input.fullName,
+          role: "WORKER",
+          termsAcceptedAt: acceptedAt,
+          privacyAcceptedAt: acceptedAt,
+        },
+      });
 
-    if (input.role === "WORKER") {
       let baseSlug = slugify(input.fullName) || "worker";
       let slug = baseSlug;
       let counter = 1;
@@ -39,20 +45,23 @@ export async function registerUser(input: RegisterInput, ipAddress?: string) {
           headline: `${input.fullName} — informal worker`,
         },
       });
-    }
 
-    if (input.role === "ORGANISATION") {
-      await tx.organisation.create({
-        data: {
-          ownerId: created.id,
-          name: `${input.fullName}'s Organisation`,
-          description: "Organisation profile on WorkProof Global.",
-        },
+      await createEmailVerificationForUser({
+        userId: created.id,
+        email: created.email,
+        fullName: created.fullName,
+        ip: ipAddress,
+        tx,
       });
-    }
 
-    return created;
-  });
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw AppError.conflict("An account with this email already exists.");
+    }
+    throw error;
+  }
 
   await createAuditLog({
     actorId: user.id,
@@ -92,5 +101,9 @@ export async function getUserById(id: string) {
   });
   if (!user) throw AppError.notFound("User not found.");
   const { passwordHash: _, ...safe } = user;
-  return safe;
+  return {
+    ...safe,
+    emailVerified: Boolean(user.emailVerifiedAt),
+    emailVerifiedAt: user.emailVerifiedAt,
+  };
 }

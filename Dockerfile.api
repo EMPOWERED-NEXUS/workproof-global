@@ -1,0 +1,57 @@
+# WorkProof Global API — multi-stage production image
+# Build from repository root:
+#   docker build -f Dockerfile.api -t workproof-api:local .
+
+FROM node:20-bookworm-slim AS deps
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY apps/mobile/package.json apps/mobile/
+COPY packages/shared/package.json packages/shared/
+RUN npm ci
+
+FROM node:20-bookworm-slim AS build
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json /app/package-lock.json ./
+COPY packages/shared ./packages/shared
+COPY apps/api ./apps/api
+COPY package.json ./
+# DATABASE_URL is required by prisma.config.ts even for client generate (build-time placeholder only).
+ENV DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build?schema=public"
+RUN npm run build --workspace=@workproof/shared \
+  && npm run db:generate --workspace=@workproof/api \
+  && npm run build --workspace=@workproof/api
+
+FROM node:20-bookworm-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=4000
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd --system --gid 1001 workproof \
+  && useradd --system --uid 1001 --gid workproof --create-home workproof
+
+COPY --from=build --chown=workproof:workproof /app/package.json /app/package-lock.json ./
+COPY --from=build --chown=workproof:workproof /app/node_modules ./node_modules
+COPY --from=build --chown=workproof:workproof /app/packages/shared ./packages/shared
+COPY --from=build --chown=workproof:workproof /app/apps/api/package.json ./apps/api/package.json
+COPY --from=build --chown=workproof:workproof /app/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=workproof:workproof /app/apps/api/generated ./apps/api/generated
+COPY --from=build --chown=workproof:workproof /app/apps/api/prisma ./apps/api/prisma
+COPY --from=build --chown=workproof:workproof /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
+COPY --chown=workproof:workproof scripts/api-release.sh ./scripts/api-release.sh
+RUN chmod +x ./scripts/api-release.sh
+
+USER workproof
+EXPOSE 4000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:${PORT}/api/v1/health" || exit 1
+
+WORKDIR /app/apps/api
+CMD ["node", "dist/server.js"]

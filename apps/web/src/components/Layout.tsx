@@ -1,56 +1,114 @@
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { useEffect, useId, useState } from 'react';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/use-auth';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = useId();
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    document.body.classList.toggle('nav-open', menuOpen);
+    return () => document.body.classList.remove('nav-open');
+  }, [menuOpen]);
 
   async function handleLogout() {
     await logout();
     navigate('/login');
   }
 
+  const navLinks = user ? (
+    <>
+      <NavLink to="/dashboard" onClick={() => setMenuOpen(false)}>
+        Dashboard
+      </NavLink>
+      {user.role === 'WORKER' && (
+        <>
+          <NavLink to="/receipts" onClick={() => setMenuOpen(false)}>
+            Receipts
+          </NavLink>
+          <NavLink to="/profile" onClick={() => setMenuOpen(false)}>
+            Profile
+          </NavLink>
+        </>
+      )}
+      {user.role === 'ORGANISATION' && (
+        <NavLink to="/organisation" onClick={() => setMenuOpen(false)}>
+          Organisation
+        </NavLink>
+      )}
+      {user.role === 'ADMIN' && (
+        <NavLink to="/admin" onClick={() => setMenuOpen(false)}>
+          Admin
+        </NavLink>
+      )}
+      <button type="button" className="btn btn-ghost nav-action" onClick={() => void handleLogout()}>
+        Sign out
+      </button>
+    </>
+  ) : (
+    <>
+      <NavLink to="/login" onClick={() => setMenuOpen(false)}>
+        Sign in
+      </NavLink>
+      <Link to="/register" className="btn btn-primary btn-sm nav-action" onClick={() => setMenuOpen(false)}>
+        Create profile
+      </Link>
+    </>
+  );
+
   return (
     <div className="app-shell">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       <header className="site-header">
-        <Link to="/" className="brand">
-          <span className="brand-mark">WP</span>
+        <Link to="/" className="brand" onClick={() => setMenuOpen(false)}>
+          <span className="brand-mark" aria-hidden="true">
+            WP
+          </span>
           <span>
             <strong>WorkProof</strong> Global
           </span>
         </Link>
-        <nav className="site-nav" aria-label="Main">
-          {user ? (
-            <>
-              <NavLink to="/dashboard">Dashboard</NavLink>
-              {user.role === 'WORKER' && (
-                <>
-                  <NavLink to="/receipts">Receipts</NavLink>
-                  <NavLink to="/profile">Profile</NavLink>
-                </>
-              )}
-              {user.role === 'ORGANISATION' && <NavLink to="/organisation">Organisation</NavLink>}
-              {user.role === 'ADMIN' && <NavLink to="/admin">Admin</NavLink>}
-              <button type="button" className="btn btn-ghost" onClick={() => void handleLogout()}>
-                Sign out
-              </button>
-            </>
-          ) : (
-            <>
-              <NavLink to="/login">Sign in</NavLink>
-              <Link to="/register" className="btn btn-primary btn-sm">
-                Create profile
-              </Link>
-            </>
-          )}
+        <button
+          type="button"
+          className="nav-toggle"
+          aria-expanded={menuOpen}
+          aria-controls={menuId}
+          onClick={() => setMenuOpen((o) => !o)}
+        >
+          <span className="sr-only">{menuOpen ? 'Close menu' : 'Open menu'}</span>
+          <span aria-hidden="true">{menuOpen ? '✕' : '☰'}</span>
+        </button>
+        <nav className={`site-nav ${menuOpen ? 'is-open' : ''}`} id={menuId} aria-label="Main">
+          {navLinks}
         </nav>
       </header>
-      <main className="site-main">{children}</main>
+      <main id="main-content" className="site-main" tabIndex={-1}>
+        {children}
+      </main>
       <footer className="site-footer">
-        <p>Worker-owned portable proof · EmpowerEd Nexus innovation</p>
+        <div>
+          <p>
+            <strong>WorkProof Global</strong>
+          </p>
+          <p className="footer-tagline">Worker-owned portable proof · EmpowerEd Nexus Ltd</p>
+        </div>
         <div className="footer-links">
           <Link to="/privacy">Privacy</Link>
           <Link to="/terms">Terms</Link>
+          <Link to="/evidence-policy">Evidence policy</Link>
+          <Link to="/dispute-policy">Dispute policy</Link>
+          <Link to="/support">Support</Link>
+          <Link to="/login">Sign in</Link>
+          <Link to="/register">Create profile</Link>
         </div>
       </footer>
     </div>
@@ -61,9 +119,19 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{status.replace(/_/g, ' ')}</span>;
 }
 
-export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  action,
+  compact = false,
+}: {
+  title: string;
+  subtitle?: string;
+  action?: React.ReactNode;
+  compact?: boolean;
+}) {
   return (
-    <div className="page-header">
+    <div className={`page-header${compact ? ' compact' : ''}`}>
       <div>
         <h1>{title}</h1>
         {subtitle && <p className="subtitle">{subtitle}</p>}
@@ -73,7 +141,15 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
   );
 }
 
-export function EmptyState({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
+export function EmptyState({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
   return (
     <div className="empty-state">
       <h3>{title}</h3>
@@ -84,5 +160,9 @@ export function EmptyState({ title, description, action }: { title: string; desc
 }
 
 export function Alert({ tone, message }: { tone: 'error' | 'success' | 'info'; message: string }) {
-  return <div className={`alert alert-${tone}`} role="alert">{message}</div>;
+  return (
+    <div className={`alert alert-${tone}`} role="alert">
+      {message}
+    </div>
+  );
 }

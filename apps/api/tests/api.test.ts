@@ -1,8 +1,16 @@
 import request from "supertest";
 import { describe, it, expect } from "vitest";
 import { app } from "../src/app.js";
+import { markEmailVerified } from "./helpers.js";
 
 describe("WorkProof Global API", () => {
+  it("GET /api/v1/ready aliases readiness", async () => {
+    const res = await request(app).get("/api/v1/ready");
+    expect([200, 503]).toContain(res.status);
+    expect(res.body.checks).toBeTruthy();
+    expect(res.body.checks.database).toBeTruthy();
+  });
+
   it("GET /api/v1/health returns running status", async () => {
     const res = await request(app).get("/api/v1/health");
     expect(res.status).toBe(200);
@@ -16,6 +24,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "New Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -29,12 +39,16 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Dup Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const res = await request(app).post("/api/v1/auth/register").send({
       email: "dup@test.com",
       password: "SecurePass1",
       fullName: "Dup Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     expect(res.status).toBe(409);
   });
@@ -45,6 +59,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Login Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const res = await request(app).post("/api/v1/auth/login").send({
       email: "login@test.com",
@@ -68,12 +84,17 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Owner Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
+    await markEmailVerified("owner@test.com");
     await agent2.post("/api/v1/auth/register").send({
       email: "other@test.com",
       password: "SecurePass1",
       fullName: "Other Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
 
     const createRes = await agent1.post("/api/v1/receipts").send({
@@ -102,7 +123,10 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Confirm Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
+    await markEmailVerified("confirm@test.com");
 
     const createRes = await agent.post("/api/v1/receipts").send({
       customerName: "Confirm Customer",
@@ -123,6 +147,7 @@ describe("WorkProof Global API", () => {
       .post(`/api/v1/verification/${token}/respond`)
       .send({
         decision: "CONFIRMED",
+        acknowledgedAccuracy: true,
         customerName: "Confirm Customer",
         comment: "Work completed satisfactorily.",
       });
@@ -133,6 +158,7 @@ describe("WorkProof Global API", () => {
       .post(`/api/v1/verification/${token}/respond`)
       .send({
         decision: "CONFIRMED",
+        acknowledgedAccuracy: true,
         customerName: "Confirm Customer",
       });
     expect(reuseRes.status).toBe(400);
@@ -145,7 +171,10 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Locked Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
+    await markEmailVerified("locked@test.com");
 
     const createRes = await agent.post("/api/v1/receipts").send({
       customerName: "Lock Customer",
@@ -159,7 +188,7 @@ describe("WorkProof Global API", () => {
     const submitRes = await agent.post(`/api/v1/receipts/${receiptId}/submit`);
     await request(app)
       .post(`/api/v1/verification/${submitRes.body.data.verificationToken}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Lock Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Lock Customer" });
 
     const editRes = await agent.patch(`/api/v1/receipts/${receiptId}`).send({
       serviceTitle: "Changed title",
@@ -174,7 +203,10 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Public Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
+    await markEmailVerified("public@test.com");
 
     const createRes = await agent.post("/api/v1/receipts").send({
       customerName: "Private Customer",
@@ -190,7 +222,7 @@ describe("WorkProof Global API", () => {
     const submitRes = await agent.post(`/api/v1/receipts/${receiptId}/submit`);
     const confirmRes = await request(app)
       .post(`/api/v1/verification/${submitRes.body.data.verificationToken}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Private Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Private Customer" });
 
     const code = confirmRes.body.data.verificationCode as string;
     const proofRes = await request(app).get(`/api/v1/public/receipts/${code}`);
@@ -207,6 +239,8 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "Not Admin",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
     const res = await agent.get("/api/v1/admin/users");
     expect(res.status).toBe(403);
@@ -219,7 +253,10 @@ describe("WorkProof Global API", () => {
       password: "SecurePass1",
       fullName: "List Query Worker",
       role: "WORKER",
+      acceptTerms: true,
+      acceptPrivacy: true,
     });
+    await markEmailVerified("listquery@test.com");
 
     const createRes = await agent.post("/api/v1/receipts").send({
       customerName: "Filter Customer",
@@ -237,7 +274,7 @@ describe("WorkProof Global API", () => {
 
     await request(app)
       .post(`/api/v1/verification/${submitRes.body.data.verificationToken as string}/respond`)
-      .send({ decision: "CONFIRMED", customerName: "Filter Customer" });
+      .send({ decision: "CONFIRMED", acknowledgedAccuracy: true, customerName: "Filter Customer" });
 
     const listRes = await agent.get("/api/v1/receipts?status=VERIFIED&page=1&limit=10");
     expect(listRes.status).toBe(200);

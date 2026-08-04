@@ -2,22 +2,25 @@ export class AppError extends Error {
   readonly statusCode: number;
   readonly isOperational: boolean;
   readonly errors?: Record<string, string[]>;
+  readonly code?: string;
 
   constructor(
     message: string,
     statusCode = 400,
     errors?: Record<string, string[]>,
     isOperational = true,
+    code?: string,
   ) {
     super(message);
     this.name = "AppError";
     this.statusCode = statusCode;
     this.isOperational = isOperational;
     this.errors = errors;
+    this.code = code;
   }
 
-  static badRequest(message: string, errors?: Record<string, string[]>): AppError {
-    return new AppError(message, 400, errors);
+  static badRequest(message: string, errors?: Record<string, string[]>, code?: string): AppError {
+    return new AppError(message, 400, errors, true, code);
   }
 
   static unauthorized(message = "Authentication required."): AppError {
